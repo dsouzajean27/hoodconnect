@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
 const geocoder = require("./geocoder");
+const bcrypt = require("bcrypt");
 
 const app = express();
 

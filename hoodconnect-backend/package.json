@@ -1,0 +1,22 @@
+{
+  "name": "node-mongodb-connection",
+  "version": "1.0.0",
+  "description": "node app that connects to mongodb",
+  "keywords": [],
+  "license": "MIT",
+  "author": "jean",
+  "type": "server.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mongodb": "^7.1.0",
+    "mongoose": "^9.2.1",
+    "multer": "^2.1.1",
+    "node-geocoder": "^4.4.1"
+  }
+}

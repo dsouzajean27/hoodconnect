@@ -9,7 +9,7 @@ export default function Login() {
 
   const handleLogin = async () => {
   try {
-    const res = await axios.post("http://localhost:8000/login", {
+    const res = await axios.post("https://hoodconnect-backend.onrender.com/login", {
       email,
       password,
     });

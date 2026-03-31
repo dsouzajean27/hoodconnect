@@ -27,6 +27,12 @@ const postSchema = new mongoose.Schema(
       },
     ],
 
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "low"
+    }
+
     // ⭐ GEO DATA (PRODUCTION STANDARD)
     geo: {
       type: {

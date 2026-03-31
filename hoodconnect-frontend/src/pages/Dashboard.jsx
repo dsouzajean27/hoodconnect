@@ -45,7 +45,7 @@ export default function Dashboard() {
   }
 
   const navigate = useNavigate();
-  const BASE_URL = "https://hoodconnect-backend.onrender.com/";
+  const BASE_URL = "https://hoodconnect-backend.onrender.com";
 
   const filters = [
     { key: "all", label: "All", icon: Globe },
@@ -54,6 +54,30 @@ export default function Dashboard() {
     { key: "casual", label: "Casual", icon: User },
     { key: "promotional", label: "Promo", icon: Megaphone },
   ];
+
+  const handleDelete = async (postId) => {
+    try {
+      await axios.delete(`${BASE_URL}posts/${postId}`);
+      fetchPosts();
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+const handleEdit = async (postId) => {
+  const newText = prompt("Edit your post content:");
+    if (!newText) return;
+
+    try {
+      await axios.put(`${BASE_URL}posts/${postId}`, {
+        content: newText,
+      });
+
+      fetchPosts();
+    } catch (err) {
+      console.log(err);
+    }
+  };
 
   useEffect(() => {
     fetchPosts();
@@ -278,6 +302,17 @@ const handleComment = async (postId) => {
         })}
       </p>
       <p className="font-semibold">{post.location}</p>
+      {latitude && post.latitude && (
+        <p className="text-xs text-gray-500">
+          📍{" "}
+          {getDistance(
+            Number(latitude),
+            Number(longitude),
+            Number(post.latitude),
+            Number(post.longitude)
+          ).toFixed(1)} km away
+        </p>
+      )}
       <p className="text-xs text-gray-500">{post.type}</p>
     </div>
 
@@ -307,6 +342,16 @@ const handleComment = async (postId) => {
 
         <button>
           💬 {post.comments?.length || 0}
+        </button>
+
+        {/* ✏️ EDIT */}
+        <button onClick={() => handleEdit(post._id)}>
+          ✏️ Edit
+        </button>
+
+        {/* 🗑️ DELETE */}
+        <button onClick={() => handleDelete(post._id)}>
+          🗑️ Delete
         </button>
 
       </div>

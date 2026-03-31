@@ -11,6 +11,11 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
+//TEST
+app.get("/", (req, res) => {
+  res.send("HoodConnect Backend is running 🚀");
+});
+
 // ================= MODELS =================
 const User = require("./models/user");
 const Post = require("./models/post");
@@ -153,6 +158,7 @@ app.post(
       userName: isAnonymous ? "Anonymous" : userName,
       anonymous: isAnonymous,
       alert: isAlert,
+      priority: req.body.priority || "low",
 
       geo: {
         type: "Point",
@@ -248,6 +254,30 @@ app.post("/posts/:id/comment", async (req, res) => {
   }
 });
 
+app.put("/posts/:id", async (req, res) => {
+  try {
+    const updatedPost = await Post.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    res.json(updatedPost);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/posts/:id", async (req, res) => {
+  try {
+    await Post.findByIdAndDelete(req.params.id);
+    res.json({ message: "Post deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ================= GET ALL POSTS =================
 app.get("/posts", async (req, res) => {
   try {
@@ -257,6 +287,7 @@ app.get("/posts", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ================= START SERVER =================
 app.listen(8000, () => {

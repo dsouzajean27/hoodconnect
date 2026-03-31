@@ -39,7 +39,7 @@ export default function Dashboard() {
   }
 
   const navigate = useNavigate();
-  const BASE_URL = "http://127.0.0.1:8000/";
+  const BASE_URL = "http://localhost:8000/";
 
   const filters = [
     { key: "all", label: "All", icon: Globe },

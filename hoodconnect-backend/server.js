@@ -33,7 +33,13 @@ const upload = multer({ storage });
 // ================= REGISTER =================
 app.post("/register", async (req, res) => {
   try {
-    const newUser = new User(req.body);
+    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+
+    const newUser = new User({
+      ...req.body,
+      password: hashedPassword,
+    });
+
     await newUser.save();
     res.json({ message: "User registered" });
   } catch (err) {
@@ -52,9 +58,11 @@ app.post("/login", async (req, res) => {
       return res.status(400).json({ message: "User not found" });
     }
 
-    if (user.password !== password) {
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
       return res.status(400).json({ message: "Wrong password" });
-    }
+    } 
 
     // ✅ RETURN USER DATA TO FRONTEND
     res.json({
@@ -108,6 +116,7 @@ app.post(
 
       // ================= GEO CODING =================
       let fullAddress = "Unknown";
+      let city = "Unknown";
 
       try {
         const geoData = await geocoder.reverse({

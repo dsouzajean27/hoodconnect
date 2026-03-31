@@ -9,6 +9,7 @@ import {
   Megaphone,
   Menu,
 } from "lucide-react";
+import { useRef } from "react";
 
 export default function Dashboard() {
   const [posts, setPosts] = useState([]);
@@ -21,6 +22,7 @@ export default function Dashboard() {
 
   const [image, setImage] = useState(null);
   const [video, setVideo] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
@@ -28,6 +30,10 @@ export default function Dashboard() {
   const [nearMe, setNearMe] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
+
+  const [emergencyPost, setEmergencyPost] = useState(null);
+  const alertSound = new Audio("https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3");
+  const seenAlertsRef = useRef(new Set());
 
   const [alertUsers, setAlertUsers] = useState(false);
 
@@ -54,22 +60,19 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-  const seen = JSON.parse(localStorage.getItem("seenAlerts")) || [];
+    posts.forEach((post) => {
+      if (
+        post.type === "emergency" &&
+        post.alert &&
+        !seenAlertsRef.current.has(post._id)
+      ) {
+        setEmergencyPost(post);
+        alertSound.play();
 
-  posts.forEach((post) => {
-    if (
-      post.type === "emergency" &&
-      post.alert &&
-      !seen.includes(post._id)
-    ) {
-      alert(`🚨 Emergency: ${post.title}`);
-
-      seen.push(post._id);
-      localStorage.setItem("seenAlerts", JSON.stringify(seen));
-    }
-    
-  });
-}, [posts]);
+        seenAlertsRef.current.add(post._id);
+      }
+    });
+  }, [posts]);
 
   const fetchPosts = async () => {
     try {
@@ -425,7 +428,11 @@ const handleComment = async (postId) => {
               <label className="flex-1 bg-white/10 border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
                 📸 Choose Image
                 <input type="file" accept="image/*" hidden
-                  onChange={(e)=>setImage(e.target.files[0])} />
+                  onChange={(e) => {
+                    const file = e.target.files[0];
+                    setImage(file);
+                    setImagePreview(URL.createObjectURL(file));
+                  }} />
               </label>
 
               <label className="flex-1 bg-white/10 border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
@@ -435,12 +442,45 @@ const handleComment = async (postId) => {
               </label>
 
             </div>
+            {imagePreview && (
+              <img
+                src={imagePreview}
+                className="w-full rounded-xl mt-3"
+                alt="preview"
+              />
+            )}
 
             <button
               onClick={() => { handlePost(); setShowModal(false); }}
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl"
             >
               🚀 Post
+            </button>
+
+          </div>
+        </div>
+
+      )}
+      {emergencyPost && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+          <div className="bg-red-600 text-white p-8 rounded-2xl w-[400px] text-center shadow-2xl animate-pulse">
+
+            <h2 className="text-2xl font-bold mb-4">🚨 EMERGENCY ALERT 🚨</h2>
+
+            <h3 className="text-lg font-semibold">{emergencyPost.title}</h3>
+
+            <p className="mt-2">{emergencyPost.content}</p>
+
+            <p className="mt-2 text-sm">
+              📍 {emergencyPost.location}
+            </p>
+
+            <button
+              onClick={() => setEmergencyPost(null)}
+              className="mt-6 bg-white text-red-600 px-4 py-2 rounded-lg font-semibold"
+            >
+              Close
             </button>
 
           </div>

@@ -162,7 +162,7 @@ const handleEdit = async (postId) => {
     return R * c;
   };
 
-  const filteredPosts = posts.filter((post) => {
+  const filteredPosts = posts.filter(post) => {
     const matchesType = type === "all" || post?.type === type;
 
     const matchesSearch =
@@ -171,9 +171,13 @@ const handleEdit = async (postId) => {
 
     if (!nearMe) return matchesType && matchesSearch;
 
-    if (!latitude || !longitude || !post.latitude || !post.longitude) {
+    const postLat = post.targetLat || post.originLat;
+    const postLng = post.targetLng || post.originLng;
+
+    if (!latitude || !longitude || !postLat || !postLng) {
       return false;
     }
+  }
 
     const distance = getDistance(
       Number(latitude),
@@ -339,7 +343,13 @@ const handleComment = async (postId) => {
           </MapContainer>
         </div>
 
-          {filteredPosts.map((post) => (
+          {filteredPosts
+            .filter(
+              (post) =>
+                (post.targetLat && post.targetLng) ||
+                (post.originLat && post.originLng)
+            )
+            .map((post) => (
             <div key={post._id} className="bg-white text-black rounded-2xl mb-6 overflow-hidden">
 
     {/* HEADER */}
@@ -361,14 +371,14 @@ const handleComment = async (postId) => {
       <p className="text-xs text-gray-500">
         Posted from: {post.originAddress}
       </p>
-      {latitude && post.latitude && (
+      {latitude && (post.targetLat || post.originLat) && (
         <p className="text-xs text-gray-500">
           📍{" "}
           {getDistance(
             Number(latitude),
             Number(longitude),
-            Number(post.latitude),
-            Number(post.longitude)
+            Number(post.targetLat || post.originLat),
+            Number(post.targetLng || post.originLng)
           ).toFixed(1)} km away
         </p>
       )}

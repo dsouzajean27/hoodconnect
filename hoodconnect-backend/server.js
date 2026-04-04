@@ -191,6 +191,13 @@ app.post(
         }
       }
 
+      // ✅ IF USER DID NOT ENTER LOCATION → USE THEIR CURRENT LOCATION
+      if (!targetLat && originLat && originLng) {
+        targetLat = originLat;
+        targetLng = originLng;
+        targetAddress = originAddress;
+      }
+
       // ================= CREATE POST =================
       const post = new Post({
         title,

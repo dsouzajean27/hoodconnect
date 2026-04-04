@@ -8,6 +8,7 @@ const fs = require("fs");
 const http = require("http");
 const { Server } = require("socket.io");
 
+
 if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads");
 }
@@ -337,6 +338,37 @@ app.delete("/posts/:id", async (req, res) => {
   try {
     await Post.findByIdAndDelete(req.params.id);
     res.json({ message: "Post deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//===============TRUST ========================
+app.put("/posts/:id/trust", async (req, res) => {
+  try {
+    const { userId, type } = req.body;
+
+    const post = await Post.findById(req.params.id);
+
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    // remove from both first
+    post.trustUpvotes = post.trustUpvotes.filter(
+      (id) => id.toString() !== userId
+    );
+    post.trustDownvotes = post.trustDownvotes.filter(
+      (id) => id.toString() !== userId
+    );
+
+    if (type === "up") {
+      post.trustUpvotes.push(userId);
+    } else {
+      post.trustDownvotes.push(userId);
+    }
+
+    await post.save();
+    res.json(post);
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -115,6 +115,30 @@ const handleEdit = async (postId) => {
     }),
   };
 
+  const handleTrust = async (postId, type) => {
+    try {
+      await axios.put(`${BASE_URL}posts/${postId}/trust`, {
+        userId: user?.id,
+        type,
+      });
+
+      fetchPosts();
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  const getTimeLeft = (createdAt) => {
+  const diff = 24 * 60 * 60 * 1000 - (new Date() - new Date(createdAt));
+
+  if (diff <= 0) return "Expired";
+
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const mins = Math.floor((diff / (1000 * 60)) % 60);
+
+  return `${hours}h ${mins}m left`;
+};
+
   useEffect(() => {
     posts.forEach((post) => {
 
@@ -246,6 +270,7 @@ const handleEdit = async (postId) => {
       formData.append("userName", user?.name || "Unknown");
       formData.append("anonymous", String(anonymous)); // 🔥 FIX
       formData.append("alert", String(alertUsers));
+      formData.append("severity", severity);
 
       if (image) formData.append("image", image);
       if (video) formData.append("video", video);
@@ -498,6 +523,10 @@ function MapClickHandler() {
         </p>
       )}
       <p className="text-xs text-gray-500">{post.type}</p>
+
+      <p className="text-xs text-gray-500">
+        ⏳ {getTimeLeft(post.createdAt)}
+      </p>
     </div>
 
     {/* CONTENT */}
@@ -519,6 +548,14 @@ function MapClickHandler() {
     {/* ❤️ ACTIONS */}
     <div className="flex justify-between px-4 py-3 text-sm">
       <div className="flex gap-4">
+
+        <button onClick={() => handleTrust(post._id, "up")}>
+          👍 {post.trustUpvotes?.length || 0}
+        </button>
+
+        <button onClick={() => handleTrust(post._id, "down")}>
+          ❌ {post.trustDownvotes?.length || 0}
+        </button>
 
         <button onClick={() => handleLike(post._id)}>
           ❤️ {post.likes?.length || 0}
@@ -629,9 +666,18 @@ function MapClickHandler() {
             >
               <option value="casual">Casual</option>
               <option value="emergency">Emergency</option>
+                <select
+                  value={severity}
+                  onChange={(e) => setSeverity(e.target.value)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
               <option value="event">Event</option>
               <option value="promotional">Promotional</option>
             </select>
+            
 
             <div className="flex items-center gap-2 mb-3">
               <input

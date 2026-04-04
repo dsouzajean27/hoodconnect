@@ -31,6 +31,15 @@ const postSchema = new mongoose.Schema(
 
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
+    trustUpvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    trustDownvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    severity: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "low"
+    }
+
     comments: [
       {
         userName: String,

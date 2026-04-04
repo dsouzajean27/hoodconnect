@@ -11,6 +11,18 @@ import {
 } from "lucide-react";
 import { useRef } from "react";
 import { io } from "socket.io-client";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+
+import L from "leaflet";
+
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+});
 
 export default function Dashboard() {
   const [posts, setPosts] = useState([]);
@@ -297,8 +309,36 @@ const handleComment = async (postId) => {
             ➕ Create Post
           </button>
 
+          <div className="mb-6 rounded-2xl overflow-hidden">
+          <MapContainer
+            center={[19.076, 72.8777]} // default Mumbai
+            zoom={13}
+            style={{ height: "300px", width: "100%" }}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            {filteredPosts.map((post) => (
+              <Marker
+                key={post._id}
+                position={[
+                  Number(post.latitude),
+                  Number(post.longitude),
+                ]}
+              >
+                <Popup>
+                  <b>{post.title}</b>
+                  <br />
+                  {post.content}
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+
           {filteredPosts.map((post) => (
-  <div key={post._id} className="bg-white text-black rounded-2xl mb-6 overflow-hidden">
+            <div key={post._id} className="bg-white text-black rounded-2xl mb-6 overflow-hidden">
 
     {/* HEADER */}
     <div className="p-4">

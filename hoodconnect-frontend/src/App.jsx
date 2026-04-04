@@ -15,5 +15,8 @@ function App() {
     </BrowserRouter>
   );
 }
+.leaflet-container {
+  z-index: 0 !important;
+}
 
 export default App;

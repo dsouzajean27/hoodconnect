@@ -293,7 +293,7 @@ const handleComment = async (postId) => {
         </div>
 
         {/* CENTER */}
-        <div className="flex-1 max-w-2xl mx-auto p-6">
+        <div className="flex-1 max-w-2xl mx-auto p-6 relative z-10">
 
           <input
             className="w-full p-3 mb-4 rounded-xl text-black"
@@ -309,11 +309,11 @@ const handleComment = async (postId) => {
             ➕ Create Post
           </button>
 
-          <div className="mb-6 rounded-2xl overflow-hidden">
+          <div className="mb-6 rounded-2xl overflow-hidden relative z-0">
           <MapContainer
-            center={[19.076, 72.8777]} // default Mumbai
+            center={[19.076, 72.8777]}
             zoom={13}
-            style={{ height: "300px", width: "100%" }}
+            style={{ height: "300px", width: "100%", zIndex: 0 }}
           >
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

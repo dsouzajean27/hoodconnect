@@ -326,10 +326,10 @@ const handleComment = async (postId) => {
     <p className="px-4">{post.content}</p>
 
     {post.image && (
-      <img src={`${BASE_URL}uploads/${post.image}`} className="w-full" />
+      <img src={`${BASE_URL}/uploads/${post.image}`} />
     )}
     {post.video && (
-      <video src={`${BASE_URL}uploads/${post.video}`} controls className="w-full" />
+      <video src={`${BASE_URL}/uploads/${post.video}`} controls />
     )}
 
     {/* ❤️ ACTIONS */}

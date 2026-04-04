@@ -117,7 +117,7 @@ const handleEdit = async (postId) => {
 
   const handleTrust = async (postId, type) => {
     try {
-      await axios.put(`${BASE_URL}posts/${postId}/trust`, {
+      await axios.put(`${BASE_URL}/posts/${postId}/trust`, {
         userId: user?.id,
         type,
       });

@@ -50,6 +50,7 @@ export default function Dashboard() {
   const seenAlertsRef = useRef(new Set());
 
   const socket = io("https://hoodconnect-backend.onrender.com");
+  const [selectedPosition, setSelectedPosition] = useState(null);
 
   const [alertUsers, setAlertUsers] = useState(false);
 
@@ -251,6 +252,8 @@ const handleEdit = async (postId) => {
 
       await axios.post(`${BASE_URL}/posts`, formData);
 
+      setSelectedPosition(null);
+
       setTitle("");
       setContent("");
       setLocation("");
@@ -302,6 +305,9 @@ function MapClickHandler() {
   useMapEvents({
     async click(e) {
       const { lat, lng } = e.latlng;
+
+      // ✅ show temp marker
+      setSelectedPosition([lat, lng]);
 
       setLatitude(lat);
       setLongitude(lng);
@@ -406,6 +412,14 @@ function MapClickHandler() {
                 if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
                   return null;
                 }
+
+                {selectedPosition && (
+                  <Marker position={selectedPosition}>
+                    <Popup>
+                      📍 Selected Location
+                    </Popup>
+                  </Marker>
+                )}
 
                 return (
                   <Marker

@@ -9,7 +9,7 @@ import {
   Megaphone,
   Menu,
 } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -51,6 +51,7 @@ export default function Dashboard() {
 
   const socket = io("https://hoodconnect-backend.onrender.com");
   const [selectedPosition, setSelectedPosition] = useState(null);
+  const [severity, setSeverity] = useState("low");
 
   const [alertUsers, setAlertUsers] = useState(false);
 
@@ -138,6 +139,20 @@ const handleEdit = async (postId) => {
 
   return `${hours}h ${mins}m left`;
 };
+
+const socketRef = useRef(null);
+
+useEffect(() => {
+  socketRef.current = io("https://hoodconnect-backend.onrender.com");
+
+  socketRef.current.on("newPost", (post) => {
+    setPosts((prev) => [post, ...prev]);
+  });
+
+  return () => {
+    socketRef.current.disconnect();
+  };
+}, []);
 
   useEffect(() => {
     posts.forEach((post) => {
@@ -439,14 +454,6 @@ function MapClickHandler() {
                   return null;
                 }
 
-                {selectedPosition && (
-                  <Marker position={selectedPosition}>
-                    <Popup>
-                      📍 Selected Location
-                    </Popup>
-                  </Marker>
-                )}
-
                 return (
                   <Marker
                     key={post._id}
@@ -481,6 +488,14 @@ function MapClickHandler() {
                   </Marker>
                 );
               })}
+              {selectedPosition && (
+                  <Marker position={selectedPosition}>
+                    <Popup>
+                      📍 Selected Location
+                    </Popup>
+                  </Marker>
+                )}
+
           </MapContainer>
         </div>
 
@@ -667,7 +682,11 @@ function MapClickHandler() {
             >
               <option value="casual">Casual</option>
               <option value="emergency">Emergency</option>
-                <select
+              <option value="event">Event</option>
+              <option value="promotional">Promotional</option>
+            </select>
+
+            <select
                   value={severity}
                   onChange={(e) => setSeverity(e.target.value)}
                 >
@@ -675,9 +694,6 @@ function MapClickHandler() {
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                 </select>
-              <option value="event">Event</option>
-              <option value="promotional">Promotional</option>
-            </select>
             
 
             <div className="flex items-center gap-2 mb-3">

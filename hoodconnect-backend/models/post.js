@@ -8,6 +8,9 @@ const postSchema = new mongoose.Schema(
     location: { type: String },
     city: { type: String },
 
+    latitude: { type: Number },
+    longitude: { type: Number },
+
     type: {
       type: String,
       enum: ["casual", "emergency", "event", "promotional"],

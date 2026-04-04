@@ -12,6 +12,7 @@ import {
 import { useRef } from "react";
 import { io } from "socket.io-client";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
@@ -332,19 +333,34 @@ const handleComment = async (postId) => {
               const lat = Number(post.targetLat || post.originLat);
               const lng = Number(post.targetLng || post.originLng);
 
-              // ❌ skip invalid coords
               if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
                 return null;
               }
 
               return (
-                <Marker
-                  key={post._id}
-                  position={[lat, lng]}
-                >
-                </Marker>
-              );
-            })}
+                <Marker key={post._id} position={[lat, lng]}>
+                  
+                  <Popup>
+                    <div className="text-black">
+                      <h3 className="font-bold text-purple-600">{post.title}</h3>
+
+                    <p className="text-xs">
+                      {post.content}
+                    </p>
+
+                    <p className="text-xs mt-1">
+                      📍 {post.targetAddress || post.originAddress}
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      👤 {post.userName || "Anonymous"}
+                    </p>
+                  </div>
+                </Popup>
+
+              </Marker>
+            );
+          })}
           </MapContainer>
         </div>
 

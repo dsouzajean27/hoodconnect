@@ -10,12 +10,9 @@ if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads");
 }
 
-const cors = require("cors");
 const app = express();
 
 // ================= MIDDLEWARE =================
-
-const cors = require("cors");
 
 app.use(cors({
   origin: ["https://hoodconnect.vercel.app"],

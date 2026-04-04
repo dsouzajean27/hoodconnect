@@ -95,8 +95,24 @@ const handleEdit = async (postId) => {
   };
 
   useEffect(() => {
-    fetchPosts();
-  }, []);
+    posts.forEach((post) => {
+
+      const isRecent =
+        new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
+
+      if (
+        post.type === "emergency" &&
+        post.alert &&
+        isRecent && // 🔥 ADD THIS
+        !seenAlertsRef.current.has(post._id)
+      ) {
+        setEmergencyPost(post);
+        alertSound.play();
+
+        seenAlertsRef.current.add(post._id);
+      }
+    });
+  }, [posts]);
 
   useEffect(() => {
     posts.forEach((post) => {
@@ -329,37 +345,34 @@ const handleComment = async (postId) => {
             />
 
             {filteredPosts.map((post) => {
-              const lat = Number(post.targetLat || post.originLat);
-              const lng = Number(post.targetLng || post.originLng);
+                const lat = Number(post.targetLat || post.originLat);
+                const lng = Number(post.targetLng || post.originLng);
 
-              if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
-                return null;
-              }
+                // ⏰ check if post is within 24 hours
+                const isRecent =
+                  new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
 
-              return (
-                <Marker key={post._id} position={[lat, lng]}>
-                  
-                  <Popup>
-                    <div className="text-black">
-                      <h3 className="font-bold text-purple-600">{post.title}</h3>
+                // ❌ hide old markers
+                if (!isRecent) return null;
 
-                    <p className="text-xs">
-                      {post.content}
-                    </p>
+                if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+                  return null;
+                }
 
-                    <p className="text-xs mt-1">
-                      📍 {post.targetAddress || post.originAddress}
-                    </p>
-
-                    <p className="text-xs text-gray-500 mt-1">
-                      👤 {post.userName || "Anonymous"}
-                    </p>
-                  </div>
-                </Popup>
-
-              </Marker>
-            );
-          })}
+                return (
+                  <Marker key={post._id} position={[lat, lng]}>
+                    <Popup>
+                      <div className="text-black">
+                        <h3 className="font-bold text-sm">{post.title}</h3>
+                        <p className="text-xs">{post.content}</p>
+                        <p className="text-xs mt-1">
+                          📍 {post.targetAddress || post.originAddress}
+                        </p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })}
           </MapContainer>
         </div>
 

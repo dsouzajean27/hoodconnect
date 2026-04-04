@@ -325,8 +325,8 @@ const handleComment = async (postId) => {
               <Marker
                 key={post._id}
                 position={[
-                  Number(post.latitude),
-                  Number(post.longitude),
+                  Number(post.targetLat || post.originLat),
+                  Number(post.targetLng || post.originLng),
                 ]}
               >
                 <Popup>
@@ -354,7 +354,13 @@ const handleComment = async (postId) => {
           minute: "2-digit",
         })}
       </p>
-      <p className="font-semibold">{post.location}</p>
+      <p className="font-semibold">
+        📍 Incident at: {post.targetAddress || "Not specified"}
+      </p>
+
+      <p className="text-xs text-gray-500">
+        Posted from: {post.originAddress}
+      </p>
       {latitude && post.latitude && (
         <p className="text-xs text-gray-500">
           📍{" "}

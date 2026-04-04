@@ -11,6 +11,15 @@ const postSchema = new mongoose.Schema(
     latitude: { type: Number },
     longitude: { type: Number },
 
+    originAddress: String,   // your current location
+    targetAddress: String,   // typed location
+
+    originLat: Number,
+    originLng: Number,
+
+    targetLat: Number,
+    targetLng: Number,
+
     type: {
       type: String,
       enum: ["casual", "emergency", "event", "promotional"],

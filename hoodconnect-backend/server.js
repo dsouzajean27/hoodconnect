@@ -151,74 +151,80 @@ app.post(
       }
 
       // ================= GEO CODING =================
-      let fullAddress = "Unknown";
-let city = "Unknown";
+      let originAddress = "Unknown";
+      let targetAddress = "Unknown";
 
-let lat = latitude;
-let lng = longitude;
+      let originLat = latitude;
+      let originLng = longitude;
 
-// 🔥 1. IF USER TYPED LOCATION → CONVERT TO COORDINATES
-if (location && (!latitude || !longitude)) {
-  try {
-    const geoData = await geocoder.geocode(location);
+      let targetLat = null;
+      let targetLng = null;
 
-    if (geoData && geoData[0]) {
-      lat = geoData[0].latitude;
-      lng = geoData[0].longitude;
-      fullAddress = geoData[0].formattedAddress;
-    }
-  } catch (err) {
-    console.log("Geocode error:", err);
-  }
-}
+      // ✅ ALWAYS SAVE USER REAL LOCATION
+      if (latitude && longitude) {
+        try {
+          const geoData = await geocoder.reverse({
+            lat: parseFloat(latitude),
+            lon: parseFloat(longitude),
+          });
 
-// 🔥 2. IF GPS EXISTS → GET FULL ADDRESS
-else if (latitude && longitude) {
-  try {
-    const geoData = await geocoder.reverse({
-      lat: parseFloat(latitude),
-      lon: parseFloat(longitude),
-    });
+          if (geoData && geoData[0]) {
+            originAddress = geoData[0].formattedAddress;
+          }
+        } catch (err) {
+          console.log("Origin geocode error:", err);
+        }
+      }
 
-    if (geoData && geoData[0]) {
-      fullAddress = geoData[0].formattedAddress;
-      city =
-        geoData[0].city ||
-        geoData[0].town ||
-        geoData[0].state ||
-        "Unknown";
-    }
-  } catch (err) {
-    console.log("Reverse geocoder error:", err);
-  }
-}
+      // ✅ IF USER TYPES LOCATION → GET FULL ADDRESS + COORDS
+      if (location && location !== "Unknown") {
+        try {
+          const geoData = await geocoder.geocode(location);
+
+          if (geoData && geoData[0]) {
+            targetLat = geoData[0].latitude;
+            targetLng = geoData[0].longitude;
+            targetAddress = geoData[0].formattedAddress;
+          }
+        } catch (err) {
+          console.log("Target geocode error:", err);
+        }
+      }
 
       // ================= CREATE POST =================
       const post = new Post({
-      title,
-      content,
-      location: location || fullAddress, // 🔥 THIS IS THE FIX
-      city,
-      type,
-      latitude,
-      longitude,
-      userId: isAnonymous ? null : userId,
-      userName: isAnonymous ? "Anonymous" : userName,
-      anonymous: isAnonymous,
-      alert: isAlert,
-      priority: req.body.priority || "low",
+        title,
+        content,
 
-      geo: {
-        type: "Point",
-        coordinates: [
-          parseFloat(lng),
-          parseFloat(lat),
-        ],
-      },
+        // ✅ BOTH LOCATIONS
+        originAddress,
+        targetAddress,
 
-      image: req.files?.image?.[0]?.filename,
-      video: req.files?.video?.[0]?.filename,
-    });
+        originLat: parseFloat(originLat),
+        originLng: parseFloat(originLng),
+
+        targetLat: targetLat ? parseFloat(targetLat) : null,
+        targetLng: targetLng ? parseFloat(targetLng) : null,
+
+        type,
+
+        userId: isAnonymous ? null : userId,
+        userName: isAnonymous ? "Anonymous" : userName,
+        anonymous: isAnonymous,
+        alert: isAlert,
+        priority: req.body.priority || "low",
+
+        // ✅ MAP WILL USE TARGET LOCATION IF EXISTS
+        geo: {
+          type: "Point",
+          coordinates: targetLat
+            ? [parseFloat(targetLng), parseFloat(targetLat)]
+            : [parseFloat(originLng), parseFloat(originLat)],
+        },
+
+        image: req.files?.image?.[0]?.filename,
+        video: req.files?.video?.[0]?.filename,
+      });
 
       await post.save();
 

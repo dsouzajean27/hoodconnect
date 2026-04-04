@@ -270,7 +270,7 @@ const handleComment = async (postId) => {
       <div className="flex flex-1 gap-6 px-6">
 
         {/* LEFT SIDEBAR */}
-        <div className={`bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-2xl h-fit sticky top-6 ${collapsed ? "w-20" : "w-64"}`}>
+        <div className={`bg-white/10 relative z-20 backdrop-blur-xl border border-white/20 p-4 rounded-2xl h-fit sticky top-6 ${collapsed ? "w-20" : "w-64"}`}>
           <button onClick={() => setCollapsed(!collapsed)} className="mb-4">
             <Menu />
           </button>
@@ -309,7 +309,7 @@ const handleComment = async (postId) => {
             ➕ Create Post
           </button>
 
-          <div className="mb-6 rounded-2xl overflow-hidden relative z-0">
+          <div className="mb-6 rounded-2xl overflow-hidden relative z-10">
           <MapContainer
             center={[19.076, 72.8777]}
             zoom={13}
@@ -319,7 +319,9 @@ const handleComment = async (postId) => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {filteredPosts.map((post) => (
+            {filteredPosts
+              .filter((post) => post.latitude && post.longitude)
+              .map((post) => (
               <Marker
                 key={post._id}
                 position={[

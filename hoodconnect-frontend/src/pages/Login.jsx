@@ -30,7 +30,10 @@ export default function Login() {
     }
 
   } catch (error) {
-    console.log("LOGIN ERROR:", error.response);
+    console.log("FULL ERROR:", error);
+    console.log("RESPONSE:", error.response);
+    console.log("DATA:", error.response?.data);
+
     alert(error.response?.data?.message || "Login Failed");
   }
 };

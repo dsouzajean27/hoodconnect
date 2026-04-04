@@ -4,11 +4,20 @@ const cors = require("cors");
 const multer = require("multer");
 const geocoder = require("./geocoder");
 const bcrypt = require("bcrypt");
+const fs = require("fs");
+
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
 
 const app = express();
 
 // ================= MIDDLEWARE =================
-app.use(cors({ origin: "*" }));
+
+app.use(cors({
+  origin: ["https://your-vercel-app.vercel.app"],
+  credentials: true
+}));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
@@ -25,7 +34,10 @@ const Post = require("./models/post");
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("connected to mongodb"))
-  .catch((err) => console.log(err));
+  .catch((err) => {
+    console.log("MONGO ERROR:", err);
+    process.exit(1); // 👈 force visible crash log
+  });
 
 // ================= MULTER =================
 const storage = multer.diskStorage({

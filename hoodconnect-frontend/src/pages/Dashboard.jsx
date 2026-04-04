@@ -57,7 +57,7 @@ export default function Dashboard() {
 
   const handleDelete = async (postId) => {
     try {
-      await axios.delete(`${BASE_URL}posts/${postId}`);
+      await axios.delete(`${BASE_URL}/posts/${postId}`);
       fetchPosts();
     } catch (err) {
       console.log(err);
@@ -69,7 +69,7 @@ const handleEdit = async (postId) => {
     if (!newText) return;
 
     try {
-      await axios.put(`${BASE_URL}posts/${postId}`, {
+      await axios.put(`${BASE_URL}/posts/${postId}`, {
         content: newText,
       });
 
@@ -100,7 +100,7 @@ const handleEdit = async (postId) => {
 
   const fetchPosts = async () => {
     try {
-      const res = await axios.get(`${BASE_URL}posts`);
+      const res = await axios.get(`${BASE_URL}/posts`);
       setPosts(res.data);
     } catch (err) {
       console.log(err);
@@ -181,7 +181,7 @@ const handleEdit = async (postId) => {
       if (image) formData.append("image", image);
       if (video) formData.append("video", video);
 
-      await axios.post(`${BASE_URL}posts`, formData);
+      await axios.post(`${BASE_URL}/posts`, formData);
 
       setTitle("");
       setContent("");
@@ -202,7 +202,7 @@ const handleEdit = async (postId) => {
 
   const handleLike = async (postId) => {
   try {
-    await axios.put(`${BASE_URL}posts/${postId}/like`, {
+    await axios.put(`${BASE_URL}/posts/${postId}/like`, {
       userId: user?.id,
     });
 
@@ -218,7 +218,7 @@ const handleComment = async (postId) => {
   try {
     if (!commentText[postId]) return;
 
-    await axios.post(`${BASE_URL}posts/${postId}/comment`, {
+    await axios.post(`${BASE_URL}/posts/${postId}/comment`, {
       text: commentText[postId],
       userName: user?.name || "Anonymous",
     });

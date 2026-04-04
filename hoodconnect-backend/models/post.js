@@ -38,7 +38,7 @@ const postSchema = new mongoose.Schema(
       type: String,
       enum: ["low", "medium", "high"],
       default: "low"
-    }
+    },
 
     comments: [
       {

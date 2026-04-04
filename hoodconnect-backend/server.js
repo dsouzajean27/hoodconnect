@@ -5,12 +5,21 @@ const multer = require("multer");
 const geocoder = require("./geocoder");
 const bcrypt = require("bcrypt");
 const fs = require("fs");
+const http = require("http");
+const { Server } = require("socket.io");
 
 if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads");
 }
 
 const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "https://hoodconnect.vercel.app",
+  },
+});
 
 // ================= MIDDLEWARE =================
 
@@ -28,6 +37,11 @@ app.use("/uploads", express.static("uploads"));
 //TEST
 app.get("/", (req, res) => {
   res.send("HoodConnect Backend is running 🚀");
+});
+
+//==================stock.io================
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 });
 
 // ================= MODELS =================
@@ -191,6 +205,9 @@ app.post(
 
       await post.save();
 
+      // 🔥 REALTIME BROADCAST
+      io.emit("newPost", post);
+
       res.json(post);
     } catch (err) {
       console.log(err);
@@ -307,6 +324,6 @@ app.get("/posts", async (req, res) => {
 
 
 // ================= START SERVER =================
-app.listen(8000, () => {
-  console.log("Server started on port 8000");
+server.listen(8000, () => {
+  console.log("Server running with socket 🚀");
 });

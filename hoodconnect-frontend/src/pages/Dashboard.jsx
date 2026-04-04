@@ -10,6 +10,7 @@ import {
   Menu,
 } from "lucide-react";
 import { useRef } from "react";
+import { io } from "socket.io-client";
 
 export default function Dashboard() {
   const [posts, setPosts] = useState([]);
@@ -34,6 +35,8 @@ export default function Dashboard() {
   const [emergencyPost, setEmergencyPost] = useState(null);
   const alertSound = new Audio("https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3");
   const seenAlertsRef = useRef(new Set());
+
+  const socket = io("https://hoodconnect-backend.onrender.com");
 
   const [alertUsers, setAlertUsers] = useState(false);
 
@@ -97,6 +100,14 @@ const handleEdit = async (postId) => {
       }
     });
   }, [posts]);
+
+  useEffect(() => {
+    socket.on("newPost", (post) => {
+      setPosts((prev) => [post, ...prev]);
+    });
+
+    return () => socket.off("newPost");
+  }, []);
 
   const fetchPosts = async () => {
     try {

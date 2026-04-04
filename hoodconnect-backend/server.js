@@ -152,35 +152,52 @@ app.post(
 
       // ================= GEO CODING =================
       let fullAddress = "Unknown";
-      let city = "Unknown";
+let city = "Unknown";
 
-      try {
-        const geoData = await geocoder.reverse({
-          lat: parseFloat(latitude),
-          lon: parseFloat(longitude),
-        });
+let lat = latitude;
+let lng = longitude;
 
-       if (geoData && geoData[0]) {
+// 🔥 1. IF USER TYPED LOCATION → CONVERT TO COORDINATES
+if (location && (!latitude || !longitude)) {
+  try {
+    const geoData = await geocoder.geocode(location);
 
-        // ✅ FULL ADDRESS (MAIN THING)
-        fullAddress = geoData[0].formattedAddress;
-
-        // ✅ KEEP CITY ALSO (for filters)
-        city =
-          geoData[0].city ||
-          geoData[0].town ||
-          geoData[0].state ||
-          "Unknown";
+    if (geoData && geoData[0]) {
+      lat = geoData[0].latitude;
+      lng = geoData[0].longitude;
+      fullAddress = geoData[0].formattedAddress;
+    }
+  } catch (err) {
+    console.log("Geocode error:", err);
+  }
 }
-      } catch (err) {
-        console.log("Geocoder error:", err);
-      }
+
+// 🔥 2. IF GPS EXISTS → GET FULL ADDRESS
+else if (latitude && longitude) {
+  try {
+    const geoData = await geocoder.reverse({
+      lat: parseFloat(latitude),
+      lon: parseFloat(longitude),
+    });
+
+    if (geoData && geoData[0]) {
+      fullAddress = geoData[0].formattedAddress;
+      city =
+        geoData[0].city ||
+        geoData[0].town ||
+        geoData[0].state ||
+        "Unknown";
+    }
+  } catch (err) {
+    console.log("Reverse geocoder error:", err);
+  }
+}
 
       // ================= CREATE POST =================
       const post = new Post({
       title,
       content,
-      location: fullAddress, // 🔥 THIS IS THE FIX
+      location: location || fullAddress, // 🔥 THIS IS THE FIX
       city,
       type,
       latitude,
@@ -194,8 +211,8 @@ app.post(
       geo: {
         type: "Point",
         coordinates: [
-          parseFloat(longitude),
-          parseFloat(latitude),
+          parseFloat(lng),
+          parseFloat(lat),
         ],
       },
 

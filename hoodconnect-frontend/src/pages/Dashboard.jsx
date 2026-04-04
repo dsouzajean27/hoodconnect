@@ -162,33 +162,35 @@ const handleEdit = async (postId) => {
     return R * c;
   };
 
-  const filteredPosts = posts.filter(post) => {
-    const matchesType = type === "all" || post?.type === type;
+  const filteredPosts = (posts || []).filter((post) => {
+  if (!post) return false;
 
-    const matchesSearch =
-      search === "" ||
-      post.location?.toLowerCase().includes(search.toLowerCase());
+  const matchesType = type === "all" || post.type === type;
 
-    if (!nearMe) return matchesType && matchesSearch;
+  const matchesSearch =
+    search === "" ||
+    (post.targetAddress || "")
+      .toLowerCase()
+      .includes(search.toLowerCase());
 
-    const postLat = post.targetLat || post.originLat;
-    const postLng = post.targetLng || post.originLng;
+  if (!nearMe) return matchesType && matchesSearch;
 
-    if (!latitude || !longitude || !postLat || !postLng) {
-      return false;
-    }
+  const postLat = post.targetLat || post.originLat;
+  const postLng = post.targetLng || post.originLng;
+
+  if (!latitude || !longitude || !postLat || !postLng) {
+    return false;
   }
 
-    const distance = getDistance(
-      Number(latitude),
-      Number(longitude),
-      Number(post.latitude),
-      Number(post.longitude)
-    );
+  const distance = getDistance(
+    Number(latitude),
+    Number(longitude),
+    Number(postLat),
+    Number(postLng)
+  );
 
-    return matchesType && matchesSearch && distance <= 5;
-  });
-
+  return matchesType && matchesSearch && distance <= 5;
+});
   const handlePost = async () => {
     try {
       const formData = new FormData();

@@ -175,18 +175,21 @@ const handleEdit = async (postId) => {
 
   if (!nearMe) return matchesType && matchesSearch;
 
-  const postLat = post.targetLat || post.originLat;
-  const postLng = post.targetLng || post.originLng;
+  const postLat = Number(post.targetLat || post.originLat);
+  const postLng = Number(post.targetLng || post.originLng);
 
-  if (!latitude || !longitude || !postLat || !postLng) {
-    return false;
-  }
+  if (!latitude || !longitude || !postLat || !postLng) return null;
 
-  const distance = getDistance(
-    Number(latitude),
-    Number(longitude),
-    Number(postLat),
-    Number(postLng)
+  return (
+    <p className="text-xs text-gray-500">
+      📍{" "}
+      {getDistance(
+        Number(latitude),
+        Number(longitude),
+        postLat,
+        postLng
+      ).toFixed(1)} km away
+    </p>
   );
 
   return matchesType && matchesSearch && distance <= 5;
@@ -325,23 +328,23 @@ const handleComment = async (postId) => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {filteredPosts
-              .filter((post) => post.latitude && post.longitude)
-              .map((post) => (
-              <Marker
-                key={post._id}
-                position={[
-                  Number(post.targetLat || post.originLat),
-                  Number(post.targetLng || post.originLng),
-                ]}
-              >
-                <Popup>
-                  <b>{post.title}</b>
-                  <br />
-                  {post.content}
-                </Popup>
-              </Marker>
-            ))}
+            {filteredPosts.map((post) => {
+              const lat = Number(post.targetLat || post.originLat);
+              const lng = Number(post.targetLng || post.originLng);
+
+              // ❌ skip invalid coords
+              if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+                return null;
+              }
+
+              return (
+                <Marker
+                  key={post._id}
+                  position={[lat, lng]}
+                >
+                </Marker>
+              );
+            })}
           </MapContainer>
         </div>
 

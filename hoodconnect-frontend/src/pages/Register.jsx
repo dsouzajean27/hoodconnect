@@ -11,19 +11,26 @@ export default function Register() {
 
   const handleRegister = async () => {
     try {
-      const res = await axios.post("https://hoodconnect-backend.onrender.com/register", {
-        name,
-        email,
-        password,
-        location,
-      });
+      const res = await axios.post(
+        "https://hoodconnect-backend.onrender.com/register",
+        {
+          name,
+          email,
+          password,
+          location,
+        }
+      );
+
+      console.log("REGISTER SUCCESS:", res.data);
 
       alert("Registration Successful");
       navigate("/");
-      console.log(res.data);
+
     } catch (error) {
-      console.log(error.response);
-      alert(error.response?.data?.message || "Registration Failed");
+      console.log("REGISTER ERROR FULL:", error);
+      console.log("REGISTER ERROR DATA:", error.response?.data);
+
+      alert(error.response?.data?.error || "Registration Failed");
     }
   };
 

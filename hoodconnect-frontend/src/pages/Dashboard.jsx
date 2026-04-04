@@ -13,6 +13,7 @@ import { useRef } from "react";
 import { io } from "socket.io-client";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { useMapEvents } from "react-leaflet";
 
 import L from "leaflet";
 
@@ -92,6 +93,25 @@ const handleEdit = async (postId) => {
     } catch (err) {
       console.log(err);
     }
+  };
+
+  const icons = {
+    emergency: new L.Icon({
+      iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+      iconSize: [32, 32],
+    }),
+    casual: new L.Icon({
+      iconUrl: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+      iconSize: [32, 32],
+    }),
+    event: new L.Icon({
+      iconUrl: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+      iconSize: [32, 32],
+    }),
+    promotional: new L.Icon({
+      iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+      iconSize: [32, 32],
+    }),
   };
 
   useEffect(() => {
@@ -278,6 +298,32 @@ const handleComment = async (postId) => {
   }
 };
 
+function MapClickHandler() {
+  useMapEvents({
+    async click(e) {
+      const { lat, lng } = e.latlng;
+
+      setLatitude(lat);
+      setLongitude(lng);
+
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
+        );
+        const data = await res.json();
+
+        setLocation(data.display_name || "Selected location");
+      } catch (err) {
+        console.log(err);
+      }
+
+      setShowModal(true);
+    },
+  });
+
+  return null;
+}
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-slate-900 flex flex-col text-white">
 
@@ -344,6 +390,8 @@ const handleComment = async (postId) => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
+            <MapClickHandler />
+
             {filteredPosts.map((post) => {
                 const lat = Number(post.targetLat || post.originLat);
                 const lng = Number(post.targetLng || post.originLng);
@@ -360,14 +408,34 @@ const handleComment = async (postId) => {
                 }
 
                 return (
-                  <Marker key={post._id} position={[lat, lng]}>
+                  <Marker
+                    key={post._id}
+                    position={[lat, lng]}
+                    icon={icons[post.type] || icons.casual}
+                  >
                     <Popup>
-                      <div className="text-black">
-                        <h3 className="font-bold text-sm">{post.title}</h3>
-                        <p className="text-xs">{post.content}</p>
+                      <div className="text-black w-48">
+                        <h3 className="font-bold text-purple-600">
+                          {post.title}
+                        </h3>
+
                         <p className="text-xs mt-1">
+                          {post.content}
+                        </p>
+
+                        <p className="text-xs mt-2">
                           📍 {post.targetAddress || post.originAddress}
                         </p>
+
+                        <p className="text-xs text-gray-500 mt-1">
+                          👤 {post.userName || "Anonymous"}
+                        </p>
+
+                        {post.type === "emergency" && (
+                          <p className="text-red-600 text-xs font-bold mt-2">
+                            🚨 Emergency
+                          </p>
+                        )}
                       </div>
                     </Popup>
                   </Marker>

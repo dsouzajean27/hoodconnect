@@ -365,7 +365,7 @@ const handleComment = async (postId) => {
         })}
       </p>
       <p className="font-semibold">
-        📍 Incident at: {post.targetAddress || "Not specified"}
+        📍 Located at: {post.targetAddress || "Not specified"}
       </p>
 
       <p className="text-xs text-gray-500">

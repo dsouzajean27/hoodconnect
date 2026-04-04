@@ -234,27 +234,28 @@ const handleEdit = async (postId) => {
       .toLowerCase()
       .includes(search.toLowerCase());
 
-  if (!nearMe) return matchesType && matchesSearch;
+  let matchesNearMe = true;
 
-  const postLat = Number(post.targetLat || post.originLat);
-  const postLng = Number(post.targetLng || post.originLng);
+  if (nearMe) {
+    const postLat = Number(post.targetLat || post.originLat);
+    const postLng = Number(post.targetLng || post.originLng);
 
-  if (!latitude || !longitude || !postLat || !postLng) return null;
+    if (!latitude || !longitude || !postLat || !postLng) return false;
 
-  return (
-    <p className="text-xs text-gray-500">
-      📍{" "}
-      {getDistance(
-        Number(latitude),
-        Number(longitude),
-        postLat,
-        postLng
-      ).toFixed(1)} km away
-    </p>
-  );
+    const distance = getDistance(
+      Number(latitude),
+      Number(longitude),
+      postLat,
+      postLng
+    );
 
-  return matchesType && matchesSearch && distance <= 5;
+    matchesNearMe = distance <= 5; // same logic you intended
+  }
+
+  return matchesType && matchesSearch && matchesNearMe;
 });
+
+  
   const handlePost = async () => {
     try {
       const formData = new FormData();

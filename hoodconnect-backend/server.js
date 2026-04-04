@@ -22,6 +22,67 @@ const io = new Server(server, {
   },
 });
 
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  // 🟣 JOIN ROOM (CITY)
+  socket.on("joinRoom", ({ city }) => {
+    socket.join(city);
+    socket.city = city;
+  });
+
+  // 🟢 SAVE LOCATION
+  socket.on("joinLocation", ({ latitude, longitude }) => {
+    socket.latitude = latitude;
+    socket.longitude = longitude;
+  });
+
+  // 🔥 NEW POST LOGIC (ROOM + DISTANCE)
+  socket.on("newPost", (post) => {
+    const room = post.city; // IMPORTANT: post must include city
+
+    // Step 1: only send to city room
+    io.to(room).emit("newPost", post);
+
+    // Step 2: (optional upgrade) filter inside room
+    io.to(room).sockets.forEach((s) => {
+      if (!s.latitude || !s.longitude) return;
+
+      const distance = getDistance(
+        s.latitude,
+        s.longitude,
+        post.targetLat,
+        post.targetLng
+      );
+
+      if (distance <= 5) {
+        s.emit("newPost", post);
+      }
+    });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
+});
+
 // ================= MIDDLEWARE =================
 
 app.use(cors({

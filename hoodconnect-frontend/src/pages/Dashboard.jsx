@@ -143,15 +143,31 @@ const handleEdit = async (postId) => {
 const socketRef = useRef(null);
 
 useEffect(() => {
-  socketRef.current = io("https://hoodconnect-backend.onrender.com");
+  socketRef.current = io("https://hoodconnect-backend.onrender.com", {
+    transports: ["websocket"],
+  });
 
+  // 1. Join city room
+  socketRef.current.emit("joinRoom", {
+    city: "mumbai", // you can make this dynamic later
+  });
+
+  // 2. Send location
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const { latitude, longitude } = pos.coords;
+
+    socketRef.current.emit("joinLocation", {
+      latitude,
+      longitude,
+    });
+  });
+
+  // 3. Receive posts
   socketRef.current.on("newPost", (post) => {
     setPosts((prev) => [post, ...prev]);
   });
 
-  return () => {
-    socketRef.current.disconnect();
-  };
+  return () => socketRef.current.disconnect();
 }, []);
 
   useEffect(() => {
@@ -281,6 +297,7 @@ useEffect(() => {
       formData.append("latitude", latitude || "");
       formData.append("longitude", longitude || "");
       formData.append("type", type);
+      formData.append("city", city);
 
       formData.append("userId", user?.id);
       formData.append("userName", user?.name || "Unknown");

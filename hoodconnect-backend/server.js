@@ -133,6 +133,7 @@ app.post("/register", async (req, res) => {
 
     const newUser = new User({
       ...req.body,
+      area: req.body.area,
       password: hashedPassword,
     });
 
@@ -166,7 +167,8 @@ app.post("/login", async (req, res) => {
       user: {
         name: user.name,
         email: user.email,
-        id: user._id
+        id: user._id,
+        area: user.area, // ✅ ADD THIS
       }
     });
 
@@ -297,7 +299,7 @@ app.post(
       await post.save();
 
         // ✅ decide area (for now simple fallback)
-        const area = "mumbai";
+        const area = req.body.area || "mumbai";
 
         post.area = area; // attach to object (optional)
 

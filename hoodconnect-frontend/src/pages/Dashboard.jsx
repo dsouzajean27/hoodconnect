@@ -144,51 +144,27 @@ const handleEdit = async (postId) => {
 
 const socketRef = useRef(null);
 
-useEffect(() => {
-  socketRef.current = io("https://hoodconnect-backend.onrender.com", {
-    transports: ["websocket"],
-  });
+  useEffect(() => {
+    socketRef.current = io("https://hoodconnect-backend.onrender.com", {
+      transports: ["websocket"],
+    });
 
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-  const { latitude, longitude } = pos.coords;
+    const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "mumbai";
 
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
-  );
+    console.log("JOINING ROOM:", area);
 
-  const data = await res.json();
+    socketRef.current.emit("joinRoom", { area });
 
-  const area =
-    data.address.suburb ||
-    data.address.neighbourhood ||
-    data.address.city_district ||
-    "unknown";
+    socketRef.current.on("newPost", (post) => {
+      setPosts((prev) => [post, ...prev]);
+    });
 
-  const formattedArea = area.toLowerCase().replace(/\s/g, "-");
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
 
-  console.log("JOINING ROOM:", formattedArea);
-
-  // 🔥 THIS WAS MISSING
-  socketRef.current.emit("joinRoom", {
-    area: formattedArea,
-  });
-
-  // (optional but VERY IMPORTANT for distance filtering)
-  socketRef.current.emit("joinLocation", {
-    latitude,
-    longitude,
-  });
-});
-
-  socketRef.current.on("newPost", (post) => {
-    setPosts((prev) => [post, ...prev]);
-  });
-
-  return () => {
-    socketRef.current.disconnect();
-  };
-}, []);
-  
+    
   useEffect(() => {
     posts.forEach((post) => {
       const isRecent =
@@ -645,13 +621,46 @@ function MapClickHandler() {
         {/* RIGHT */}
         <div className="w-72 bg-white/10 p-5 rounded-2xl h-fit sticky top-6">
           <div className="text-center">
+            
             <div className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl">
               {user?.name?.charAt(0) || "U"}
             </div>
+
             <h2 className="mt-3">{user?.name || "Unknown User"}</h2>
+
+            {/* ✅ CURRENT AREA DISPLAY */}
+            <p className="text-sm text-gray-300 mt-1">
+              📍 {user?.area || "No area selected"}
+            </p>
+
+            {/* ✅ STEP 5 — AREA SWITCH DROPDOWN */}
+            <select
+              className="mt-3 w-full p-2 rounded text-black"
+              defaultValue={user?.area}
+              onChange={(e) => {
+                const newArea = e.target.value.toLowerCase().replace(/\s/g, "-");
+
+                console.log("SWITCHING TO:", newArea);
+
+                // 🔥 join new room
+                socketRef.current.emit("joinRoom", { area: newArea });
+
+                // 🔥 update local storage
+                const updatedUser = { ...user, area: newArea };
+                localStorage.setItem("user", JSON.stringify(updatedUser));
+
+                // quick refresh
+                window.location.reload();
+              }}
+            >
+              <option value="majiwada">Majiwada</option>
+              <option value="andheri">Andheri</option>
+              <option value="borivali">Borivali</option>
+              <option value="dadar">Dadar</option>
+            </select>
+
           </div>
         </div>
-
       </div>
 
       {/* MODAL */}

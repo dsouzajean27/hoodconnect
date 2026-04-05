@@ -42,6 +42,9 @@ export default function Dashboard() {
   const [longitude, setLongitude] = useState("");
   const [userArea, setUserArea] = useState("");
 
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [tempArea, setTempArea] = useState("");
+
   const [nearMe, setNearMe] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
@@ -162,6 +165,14 @@ const socketRef = useRef(null);
     return () => {
       socketRef.current.disconnect();
     };
+  }, []);
+
+  useEffect(() => {
+    const storedUser = JSON.parse(localStorage.getItem("user"));
+
+    if (!storedUser?.area) {
+      setShowLocationModal(true);
+    }
   }, []);
 
     
@@ -792,6 +803,53 @@ function MapClickHandler() {
               className="mt-6 bg-white text-red-600 px-4 py-2 rounded-lg font-semibold"
             >
               Close
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {showLocationModal && (
+        <div className="fixed inset-0 bg-black/80 flex justify-center items-center z-50">
+          
+          <div className="bg-white text-black p-6 rounded-2xl w-[350px] text-center">
+
+            <h2 className="text-xl font-bold mb-4">
+              📍 Enter Your Area
+            </h2>
+
+            <input
+              className="w-full p-3 border rounded mb-4"
+              placeholder="e.g. Andheri, Borivali, Majiwada"
+              value={tempArea}
+              onChange={(e) => setTempArea(e.target.value)}
+            />
+
+            <button
+              className="bg-blue-500 text-white px-4 py-2 rounded"
+              onClick={() => {
+                if (!tempArea) return;
+
+                const formatted = tempArea.toLowerCase().replace(/\s/g, "-");
+
+                // ✅ save to user
+                const updatedUser = {
+                  ...user,
+                  area: formatted,
+                };
+
+                localStorage.setItem("user", JSON.stringify(updatedUser));
+
+                // ✅ join socket room
+                socketRef.current.emit("joinRoom", { area: formatted });
+
+                setShowLocationModal(false);
+
+                // refresh UI
+                window.location.reload();
+              }}
+            >
+              Continue
             </button>
 
           </div>

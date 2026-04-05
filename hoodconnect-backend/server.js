@@ -265,6 +265,7 @@ app.post(
       const post = new Post({
         title,
         content,
+        area,
 
         // ✅ BOTH LOCATIONS
         originAddress,
@@ -299,7 +300,11 @@ app.post(
       await post.save();
 
         // ✅ decide area (for now simple fallback)
-        const area = req.body.area || "mumbai";
+        const area = (req.body.area || "mumbai")
+          .toLowerCase()
+          .replace(/\s/g, "-");
+
+        console.log("POST AREA:", area);
 
         post.area = area; // attach to object (optional)
 

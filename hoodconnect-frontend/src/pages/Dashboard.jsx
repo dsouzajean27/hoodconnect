@@ -868,9 +868,6 @@ function MapClickHandler() {
                 }
 
                 setShowLocationModal(false);
-
-                // refresh UI
-                window.location.reload();
               }}
             >
               Continue

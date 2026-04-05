@@ -297,9 +297,7 @@ app.post(
       await post.save();
 
         // ✅ decide area (for now simple fallback)
-        const area = post.targetAddress?.toLowerCase().includes("andheri")
-          ? "andheri-west"
-          : "mumbai"; // fallback
+        const area = "mumbai";
 
         post.area = area; // attach to object (optional)
 

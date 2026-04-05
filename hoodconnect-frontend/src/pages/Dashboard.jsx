@@ -40,6 +40,7 @@ export default function Dashboard() {
 
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  const [userArea, setUserArea] = useState("");
 
   const [nearMe, setNearMe] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -49,7 +50,6 @@ export default function Dashboard() {
   const alertSound = new Audio("https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3");
   const seenAlertsRef = useRef(new Set());
 
-  const socket = io("https://hoodconnect-backend.onrender.com");
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [severity, setSeverity] = useState("low");
 
@@ -164,8 +164,19 @@ useEffect(() => {
     data.address.city_district ||
     "unknown";
 
+  const formattedArea = area.toLowerCase().replace(/\s/g, "-");
+
+  console.log("JOINING ROOM:", formattedArea);
+
+  // 🔥 THIS WAS MISSING
   socketRef.current.emit("joinRoom", {
-    area: area.toLowerCase().replace(/\s/g, "-"),
+    area: formattedArea,
+  });
+
+  // (optional but VERY IMPORTANT for distance filtering)
+  socketRef.current.emit("joinLocation", {
+    latitude,
+    longitude,
   });
 });
 
@@ -195,14 +206,6 @@ useEffect(() => {
       }
     });
   }, [posts]);
-
-  useEffect(() => {
-    socket.on("newPost", (post) => {
-      setPosts((prev) => [post, ...prev]);
-    });
-
-    return () => socket.off("newPost");
-  }, []);
 
   const fetchPosts = async () => {
     try {

@@ -168,36 +168,20 @@ useEffect(() => {
     socketRef.current.disconnect();
   };
 }, []);
+  
   useEffect(() => {
     posts.forEach((post) => {
-
       const isRecent =
         new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
 
       if (
         post.type === "emergency" &&
         post.alert &&
-        isRecent && // 🔥 ADD THIS
+        isRecent &&
         !seenAlertsRef.current.has(post._id)
       ) {
         setEmergencyPost(post);
         alertSound.play();
-
-        seenAlertsRef.current.add(post._id);
-      }
-    });
-  }, [posts]);
-
-  useEffect(() => {
-    posts.forEach((post) => {
-      if (
-        post.type === "emergency" &&
-        post.alert &&
-        !seenAlertsRef.current.has(post._id)
-      ) {
-        setEmergencyPost(post);
-        alertSound.play();
-
         seenAlertsRef.current.add(post._id);
       }
     });
@@ -518,13 +502,7 @@ function MapClickHandler() {
           </MapContainer>
         </div>
 
-          {filteredPosts
-            .filter(
-              (post) =>
-                (post.targetLat && post.targetLng) ||
-                (post.originLat && post.originLng)
-            )
-            .map((post) => (
+          {filteredPosts.map((post) => (
             <div key={post._id} className="bg-white text-black rounded-2xl mb-6 overflow-hidden">
 
     {/* HEADER */}

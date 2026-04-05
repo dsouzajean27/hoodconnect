@@ -149,16 +149,25 @@ useEffect(() => {
     transports: ["websocket"],
   });
 
-  socketRef.current.emit("joinRoom", {
-    city: "mumbai",
-  });
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+  const { latitude, longitude } = pos.coords;
 
-  navigator.geolocation.getCurrentPosition((pos) => {
-    socketRef.current.emit("joinLocation", {
-      latitude: pos.coords.latitude,
-      longitude: pos.coords.longitude,
-    });
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`
+  );
+
+  const data = await res.json();
+
+  const area =
+    data.address.suburb ||
+    data.address.neighbourhood ||
+    data.address.city_district ||
+    "unknown";
+
+  socketRef.current.emit("joinRoom", {
+    area: area.toLowerCase().replace(/\s/g, "-"),
   });
+});
 
   socketRef.current.on("newPost", (post) => {
     setPosts((prev) => [post, ...prev]);
@@ -284,6 +293,7 @@ useEffect(() => {
       formData.append("geo[coordinates][]", latitude);
       formData.append("type", type);
       formData.append("city", city);
+      formData.append("area", location.toLowerCase());
 
       formData.append("userId", user?.id);
       formData.append("userName", user?.name || "Unknown");

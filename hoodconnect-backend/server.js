@@ -43,9 +43,11 @@ io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   // 🟣 JOIN ROOM (CITY)
-  socket.on("joinRoom", ({ city }) => {
-    socket.join(city);
-    socket.city = city;
+  socket.on("joinRoom", ({ area }) => {
+    socket.join(area);
+    socket.area = area;
+
+    console.log("User joined room:", area);
   });
 
   // 🟢 SAVE LOCATION
@@ -100,11 +102,6 @@ app.use("/uploads", express.static("uploads"));
 //TEST
 app.get("/", (req, res) => {
   res.send("HoodConnect Backend is running 🚀");
-});
-
-//==================stock.io================
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
 });
 
 // ================= MODELS =================
@@ -299,8 +296,17 @@ app.post(
 
       await post.save();
 
-      // 🔥 REALTIME BROADCAST
-      io.emit("newPost", post);
+        // ✅ decide area (for now simple fallback)
+        const area = post.targetAddress?.toLowerCase().includes("andheri")
+          ? "andheri-west"
+          : "mumbai"; // fallback
+
+        post.area = area; // attach to object (optional)
+
+        // 🔥 SEND ONLY TO THAT ROOM
+        io.to(area).emit("newPost", post);
+
+        console.log("Emitted to room:", area);
 
       res.json(post);
     } catch (err) {

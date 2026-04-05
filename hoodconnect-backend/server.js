@@ -58,10 +58,9 @@ io.on("connection", (socket) => {
 
   // 🔥 NEW POST LOGIC (ROOM + DISTANCE)
   socket.on("newPost", (post) => {
-    const room = post.city; // IMPORTANT: post must include city
-
-    // Step 1: only send to city room
+    const room = post.area;
     io.to(room).emit("newPost", post);
+    
 
     // Step 2: (optional upgrade) filter inside room
     io.to(room).sockets.forEach((s) => {
@@ -262,6 +261,10 @@ app.post(
         }
 
       // ================= CREATE POST =================
+      const area = (req.body.area || "mumbai")
+        .toLowerCase()
+        .replace(/\s/g, "-");
+
       const post = new Post({
         title,
         content,
@@ -283,7 +286,7 @@ app.post(
         userName: isAnonymous ? "Anonymous" : userName,
         anonymous: isAnonymous,
         alert: isAlert,
-        priority: req.body.priority || "low",
+        severity: req.body.severity || "low",
 
         // ✅ MAP WILL USE TARGET LOCATION IF EXISTS
         geo: {
@@ -299,10 +302,6 @@ app.post(
 
       await post.save();
 
-        // ✅ decide area (for now simple fallback)
-        const area = (req.body.area || "mumbai")
-          .toLowerCase()
-          .replace(/\s/g, "-");
 
         console.log("POST AREA:", area);
 

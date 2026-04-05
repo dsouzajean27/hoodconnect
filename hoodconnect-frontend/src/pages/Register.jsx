@@ -17,7 +17,7 @@ export default function Register() {
           name,
           email,
           password,
-          location,
+          area: location,
         }
       );
 

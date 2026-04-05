@@ -204,7 +204,7 @@ const socketRef = useRef(null);
 
   const fetchPosts = async () => {
     try {
-      const res = await axios.get(`${BASE_URL}/posts`);
+      const res = await axios.get(`${BASE_URL}/posts?area=${user?.area}`);
       setPosts(res.data);
     } catch (err) {
       console.log(err);
@@ -212,19 +212,27 @@ const socketRef = useRef(null);
   };
 
   const getLocation = () => {
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      setLatitude(pos.coords.latitude);
-      setLongitude(pos.coords.longitude);
-    },
-    (err) => console.log(err),
-    {
-      enableHighAccuracy: true, // 🔥 IMPORTANT
-      timeout: 10000,
-      maximumAge: 0,
-    }
-  );
-};
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(pos.coords.latitude);
+        setLongitude(pos.coords.longitude);
+
+        // ✅ ADD THIS
+        if (socketRef.current) {
+          socketRef.current.emit("joinLocation", {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        }
+      },
+      (err) => console.log(err),
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const toRad = (v) => (v * Math.PI) / 180;
@@ -250,13 +258,16 @@ const socketRef = useRef(null);
 
   const matchesSearch =
     search === "" ||
-    (post.targetAddress || "")
+    (
+      (post.title || "") +
+      (post.content || "") +
+      (post.targetAddress || "")
+    )
       .toLowerCase()
       .includes(search.toLowerCase());
 
   let matchesNearMe = true;
 
-  /*
   if (nearMe) {
     const postLat = Number(post.targetLat || post.originLat);
     const postLng = Number(post.targetLng || post.originLng);
@@ -270,12 +281,11 @@ const socketRef = useRef(null);
       postLng
     );
 
-    matchesNearMe = distance <= 5; // same logic you intended
+    matchesNearMe = distance <= 5;
   }
-  */
 
-  return matchesType && matchesSearch && matchesNearMe;
-});
+    return matchesType && matchesSearch && matchesNearMe;
+  });
 
   
   const handlePost = async () => {

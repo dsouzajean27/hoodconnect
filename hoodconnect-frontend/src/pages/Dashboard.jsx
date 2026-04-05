@@ -175,6 +175,14 @@ const socketRef = useRef(null);
     }
   }, []);
 
+  useEffect(() => {
+  if (user?.area && socketRef.current) {
+    socketRef.current.emit("joinRoom", {
+      area: user.area,
+    });
+  }
+}, [user]);
+
     
   useEffect(() => {
     posts.forEach((post) => {
@@ -552,8 +560,12 @@ function MapClickHandler() {
     <p className="px-4">{post.content}</p>
 
     {post.image && (
-      <img src={`${BASE_URL}/uploads/${post.image}`} />
+      <img
+        src={`${BASE_URL}/uploads/${post.image}`}
+        onError={(e) => (e.target.style.display = "none")}
+      />
     )}
+
     {post.video && (
       <video src={`${BASE_URL}/uploads/${post.video}`} controls />
     )}
@@ -661,7 +673,7 @@ function MapClickHandler() {
                 localStorage.setItem("user", JSON.stringify(updatedUser));
 
                 // quick refresh
-                window.location.reload();
+                setShowLocationModal(false);
               }}
             >
               <option value="majiwada">Majiwada</option>
@@ -841,7 +853,9 @@ function MapClickHandler() {
                 localStorage.setItem("user", JSON.stringify(updatedUser));
 
                 // ✅ join socket room
-                socketRef.current.emit("joinRoom", { area: formatted });
+                if (socketRef.current) {
+                  socketRef.current.emit("joinRoom", { area: formatted });
+                }
 
                 setShowLocationModal(false);
 

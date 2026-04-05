@@ -451,7 +451,16 @@ app.put("/posts/:id/trust", async (req, res) => {
 // ================= GET ALL POSTS =================
 app.get("/posts", async (req, res) => {
   try {
-    const posts = await Post.find().sort({ createdAt: -1 }); // 🔥 newest first
+    const { area } = req.query;
+
+    let posts;
+
+    if (area) {
+      posts = await Post.find({ area }).sort({ createdAt: -1 });
+    } else {
+      posts = await Post.find().sort({ createdAt: -1 });
+    }
+
     res.json(posts);
   } catch (err) {
     res.status(500).json({ error: err.message });

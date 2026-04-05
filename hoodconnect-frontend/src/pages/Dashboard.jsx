@@ -53,6 +53,8 @@ export default function Dashboard() {
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [severity, setSeverity] = useState("low");
 
+  const [city, setCity] = useState("mumbai");
+
   const [alertUsers, setAlertUsers] = useState(false);
 
   let user = null;
@@ -147,29 +149,25 @@ useEffect(() => {
     transports: ["websocket"],
   });
 
-  // 1. Join city room
   socketRef.current.emit("joinRoom", {
-    city: "mumbai", // you can make this dynamic later
+    city: "mumbai",
   });
 
-  // 2. Send location
   navigator.geolocation.getCurrentPosition((pos) => {
-    const { latitude, longitude } = pos.coords;
-
     socketRef.current.emit("joinLocation", {
-      latitude,
-      longitude,
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
     });
   });
 
-  // 3. Receive posts
   socketRef.current.on("newPost", (post) => {
     setPosts((prev) => [post, ...prev]);
   });
 
-  return () => socketRef.current.disconnect();
+  return () => {
+    socketRef.current.disconnect();
+  };
 }, []);
-
   useEffect(() => {
     posts.forEach((post) => {
 
@@ -267,6 +265,7 @@ useEffect(() => {
 
   let matchesNearMe = true;
 
+  /*
   if (nearMe) {
     const postLat = Number(post.targetLat || post.originLat);
     const postLng = Number(post.targetLng || post.originLng);
@@ -282,6 +281,7 @@ useEffect(() => {
 
     matchesNearMe = distance <= 5; // same logic you intended
   }
+  */
 
   return matchesType && matchesSearch && matchesNearMe;
 });
@@ -296,6 +296,8 @@ useEffect(() => {
       formData.append("location", location || "Unknown");
       formData.append("latitude", latitude || "");
       formData.append("longitude", longitude || "");
+      formData.append("geo[coordinates][]", longitude);
+      formData.append("geo[coordinates][]", latitude);
       formData.append("type", type);
       formData.append("city", city);
 

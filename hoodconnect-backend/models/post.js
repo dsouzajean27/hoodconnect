@@ -63,7 +63,7 @@ const postSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number], // [longitude, latitude]
-        required: true,
+        required: false,
       },
     },
 

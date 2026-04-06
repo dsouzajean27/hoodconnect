@@ -4,10 +4,17 @@ const postSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     content: { type: String, required: true },
-    
-    // Geographical Tracking
-    area: { type: String, lowercase: true, index: true }, // The socket room / filter key
-    targetAddress: String, 
+
+    // FIX: added originAddress, originLat, originLng — were computed in
+    // server.js but missing from schema, so Mongoose silently dropped them.
+    // The frontend was already trying to render post.originAddress.
+    area: { type: String, lowercase: true, index: true },
+
+    originAddress: String,
+    originLat: Number,
+    originLng: Number,
+
+    targetAddress: String,
     targetLat: Number,
     targetLng: Number,
 
@@ -16,22 +23,21 @@ const postSchema = new mongoose.Schema(
       enum: ["casual", "emergency", "event", "promotional"],
       default: "casual",
     },
-    
+
     severity: {
       type: String,
       enum: ["low", "medium", "high"],
-      default: "low"
+      default: "low",
     },
 
-    // User Info
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     userName: { type: String },
     anonymous: { type: Boolean, default: false },
 
-    // Engagement
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     trustUpvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     trustDownvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
     comments: [
       {
         userName: String,
@@ -40,15 +46,15 @@ const postSchema = new mongoose.Schema(
       },
     ],
 
-    // Media & Alerts
+    // FIX: image/video are now Cloudinary URLs (strings), not local filenames.
+    // The server now stores the full URL returned by Cloudinary.
     image: String,
     video: String,
-    alert: { type: Boolean, default: false }, // Triggers the emergency popup
+    alert: { type: Boolean, default: false },
 
-    // MongoDB Geo-spatial index for "Near Me" searches
     geo: {
       type: { type: String, enum: ["Point"], default: "Point" },
-      coordinates: { type: [Number] }, // [longitude, latitude]
+      coordinates: { type: [Number] },
     },
   },
   { timestamps: true }

@@ -101,6 +101,7 @@ export default function Dashboard() {
 
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [tempArea, setTempArea] = useState("");
+  const [areas, setAreas] = useState([]);
 
   const [nearMe, setNearMe] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -202,6 +203,10 @@ export default function Dashboard() {
       }
     });
   }, [posts]);
+
+  useEffect(() => {
+    axios.get(`${BASE_URL}/areas`).then(res => setAreas(res.data));
+  }, []);
 
   // ── Geolocation ───────────────────────────────────────────────────────────
   const getLocation = () => {
@@ -621,7 +626,7 @@ export default function Dashboard() {
               className="mt-3 w-full p-2 rounded text-black"
               value={user?.area || ""}
               onChange={(e) => {
-                const newArea = e.target.value.toLowerCase().replace(/\s/g, "-");
+                const newArea = e.target.value;
                 const updatedUser = { ...user, area: newArea };
                 localStorage.setItem("user", JSON.stringify(updatedUser));
                 setUser(updatedUser);
@@ -630,10 +635,11 @@ export default function Dashboard() {
                 }
               }}
             >
-              <option value="majiwada">Majiwada</option>
-              <option value="andheri">Andheri</option>
-              <option value="borivali">Borivali</option>
-              <option value="dadar">Dadar</option>
+              {areas.map((a) => (
+                <option key={a._id} value={a.name}>
+                  {a.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -792,12 +798,14 @@ export default function Dashboard() {
               onClick={() => {
                 if (!tempArea) return;
                 const formatted = tempArea.toLowerCase().replace(/\s/g, "-");
+                
+                // Save to DB so it appears in everyone's dropdown
+                axios.post(`${BASE_URL}/areas`, { name: formatted }, { headers: authHeaders() });
+                
                 const updatedUser = { ...user, area: formatted };
                 localStorage.setItem("user", JSON.stringify(updatedUser));
                 setUser(updatedUser);
-                if (socketRef.current) {
-                  socketRef.current.emit("joinRoom", { area: formatted });
-                }
+                if (socketRef.current) socketRef.current.emit("joinRoom", { area: formatted });
                 setShowLocationModal(false);
               }}
             >

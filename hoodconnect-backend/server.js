@@ -110,6 +110,8 @@ app.get("/", (req, res) => {
 // ================= MODELS =================
 const User = require("./models/user");
 const Post = require("./models/post");
+const Area = require("./models/area");
+
 
 // ================= DB CONNECTION =================
 mongoose
@@ -137,6 +139,7 @@ app.post("/register", async (req, res) => {
     });
 
     await newUser.save();
+    await saveArea(area); 
     res.json({ message: "User registered" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -275,6 +278,7 @@ app.post(
       });
 
       await post.save();
+      await saveArea(normalizedArea); 
 
       // Emit to the correct socket room
       io.to(normalizedArea).emit("newPost", post);
@@ -413,6 +417,45 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post("/areas", authMiddleware, async (req, res) => {
+  try {
+    const name = req.body.name?.toLowerCase().replace(/\s/g, "-");
+    if (!name) return res.status(400).json({ message: "Name required" });
+    const area = await Area.findOneAndUpdate(
+      { name },
+      { name },
+      { upsert: true, new: true }
+    );
+    res.json(area);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+//==============area=====================
+
+// Get all areas for the dropdown
+app.get("/areas", async (req, res) => {
+  try {
+    const areas = await Area.find().sort({ name: 1 });
+    res.json(areas);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save area if it doesn't exist (called internally)
+async function saveArea(name) {
+  try {
+    await Area.findOneAndUpdate(
+      { name },
+      { name },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.log("saveArea error:", err.message);
+  }
+}
 
 // ================= START SERVER =================
 const PORT = process.env.PORT || 8000;

@@ -103,6 +103,9 @@ export default function Dashboard() {
   const [tempArea, setTempArea] = useState("");
   const [areas, setAreas] = useState([]);
 
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
   const [nearMe, setNearMe] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
@@ -150,26 +153,42 @@ export default function Dashboard() {
   // Previously both fired on mount — causing the room to be joined twice.
   // Now: connect once, join the user's area, re-join when user.area changes.
   useEffect(() => {
-    socketRef.current = io(BASE_URL, { transports: ["websocket"] });
+  socketRef.current = io(BASE_URL, { transports: ["websocket"] });
 
-    const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
-    socketRef.current.emit("joinRoom", { area });
-    console.log("Joining socket room:", area);
+  const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
+  socketRef.current.emit("joinRoom", { area });
 
-    socketRef.current.on("newPost", (post) => {
-      setPosts((prev) => [post, ...prev]);
-    });
+  // ADD THESE TWO:
+  if (user?.id) {
+    socketRef.current.emit("joinUserRoom", { userId: user.id });
+  }
+  socketRef.current.on("newNotification", (notif) => {
+    setNotifications(prev => [notif, ...prev]);
+  });
 
-    return () => {
-      socketRef.current.disconnect();
-    };
-  }, []);
+  socketRef.current.on("newPost", (post) => {
+    setPosts((prev) => [post, ...prev]);
+  });
+
+  return () => {
+    socketRef.current.disconnect();
+  };
+}, []);
 
   // Re-join when user switches area (from the dropdown)
   useEffect(() => {
     if (!user?.area || !socketRef.current) return;
     const area = user.area.toLowerCase().replace(/\s/g, "-");
     socketRef.current.emit("joinRoom", { area });
+    // Join personal room for notifications
+    if (user?.id) {
+      socketRef.current.emit("joinUserRoom", { userId: user.id });
+    }
+
+    // Listen for incoming notifications
+    socketRef.current.on("newNotification", (notif) => {
+      setNotifications(prev => [notif, ...prev]);
+    });
   }, [user?.area]);
 
   // ── Fetch posts on mount + when area changes ───────────────────────────────
@@ -178,6 +197,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchPosts();
   }, [user?.area]);
+
 
   // ── Show location modal if user has no area ───────────────────────────────
   useEffect(() => {
@@ -384,11 +404,61 @@ export default function Dashboard() {
 
       {/* HEADER */}
       <div className="flex justify-between items-center p-6 bg-white/5 border-b border-white/10">
-        <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
-        <button onClick={handleLogout} className="bg-red-500 px-4 py-2 rounded-lg">
-          Logout
-        </button>
-      </div>
+  <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
+
+  <div className="flex items-center gap-4">
+    {/* BELL */}
+    <div className="relative">
+      <button
+        onClick={() => {
+          setShowNotifications(!showNotifications);
+          if (!showNotifications && user?.id) {
+            axios.put(`${BASE_URL}/notifications/${user.id}/read`, {}, {
+              headers: authHeaders()
+            });
+            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+          }
+        }}
+        className="relative text-2xl"
+      >
+        🔔
+        {notifications.filter(n => !n.read).length > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+            {notifications.filter(n => !n.read).length}
+          </span>
+        )}
+      </button>
+
+      {showNotifications && (
+        <div className="absolute right-0 top-10 w-80 bg-white text-black rounded-2xl shadow-2xl z-50 overflow-hidden">
+          <div className="p-3 border-b font-bold text-gray-700">Notifications</div>
+          {notifications.length === 0 ? (
+            <p className="p-4 text-sm text-gray-500 text-center">No notifications yet</p>
+          ) : (
+            notifications.slice(0, 10).map((n, i) => (
+              <div key={i} className={`p-3 border-b text-sm ${!n.read ? "bg-blue-50" : ""}`}>
+                <p>
+                  <b>{n.senderName}</b>{" "}
+                  {n.type === "like" && "liked your post"}
+                  {n.type === "comment" && "commented on your post"}
+                  {n.type === "trust" && "voted on your post"}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">📝 {n.postTitle}</p>
+                <p className="text-xs text-gray-400">
+                  {new Date(n.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+
+    <button onClick={handleLogout} className="bg-red-500 px-4 py-2 rounded-lg">
+      Logout
+    </button>
+  </div>
+</div>
 
       {/* BODY */}
       <div className="flex flex-1 gap-6 px-6">

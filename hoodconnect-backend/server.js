@@ -87,6 +87,11 @@ io.on("connection", (socket) => {
     console.log(`${socket.id} joined room: ${normalizedArea}`);
   });
 
+  socket.on("joinUserRoom", ({ userId }) => {
+    socket.join(`user:${userId}`);
+    console.log(`${socket.id} joined user room: user:${userId}`);
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
   });
@@ -111,6 +116,7 @@ app.get("/", (req, res) => {
 const User = require("./models/user");
 const Post = require("./models/post");
 const Area = require("./models/area");
+const Notification = require("./models/notification");
 
 
 // ================= DB CONNECTION =================
@@ -374,6 +380,19 @@ app.put("/posts/:id/like", authMiddleware, async (req, res) => {
       : [...post.likes, userId];
 
     await post.save();
+
+    if (post.userId && post.userId.toString() !== userId) {
+      const notif = await Notification.create({
+        recipientId: post.userId,
+        senderId: userId,
+        senderName: req.body.userName || "Someone",
+        type: "like",
+        postId: post._id,
+        postTitle: post.title,
+      });
+      io.to(`user:${post.userId}`).emit("newNotification", notif);
+    }
+
     res.json(post);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -388,6 +407,18 @@ app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
 
     post.comments.push({ text, userName });
     await post.save();
+    // After post.save(), add:
+    if (post.userId && post.userId.toString() !== req.body.userId) {
+      const notif = await Notification.create({
+        recipientId: post.userId,
+        senderId: req.body.userId || null,
+        senderName: userName || "Someone",
+        type: "comment",
+        postId: post._id,
+        postTitle: post.title,
+      });
+      io.to(`user:${post.userId}`).emit("newNotification", notif);
+    }
     res.json(post);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -412,6 +443,18 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
     else post.trustDownvotes.push(userId);
 
     await post.save();
+    // After post.save(), add:
+    if (post.userId && post.userId.toString() !== userId) {
+      const notif = await Notification.create({
+        recipientId: post.userId,
+        senderId: userId,
+        senderName: req.body.userName || "Someone",
+        type: "trust",
+        postId: post._id,
+        postTitle: post.title,
+      });
+      io.to(`user:${post.userId}`).emit("newNotification", notif);
+    }
     res.json(post);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -456,6 +499,32 @@ async function saveArea(name) {
     console.log("saveArea error:", err.message);
   }
 }
+
+//==================notifs=============
+// Get notifications for a user
+app.get("/notifications/:userId", authMiddleware, async (req, res) => {
+  try {
+    const notifications = await Notification.find({
+      recipientId: req.params.userId
+    }).sort({ createdAt: -1 }).limit(20);
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Mark all as read
+app.put("/notifications/:userId/read", authMiddleware, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { recipientId: req.params.userId },
+      { read: true }
+    );
+    res.json({ message: "Marked as read" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ================= START SERVER =================
 const PORT = process.env.PORT || 8000;

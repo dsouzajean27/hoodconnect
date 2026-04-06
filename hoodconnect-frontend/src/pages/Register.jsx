@@ -3,88 +3,45 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 export default function Register() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [location, setLocation] = useState("");
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", location: "" });
   const navigate = useNavigate();
 
   const handleRegister = async () => {
     try {
-      const res = await axios.post(
-        "https://hoodconnect-backend.onrender.com/register",
-        {
-          name,
-          email,
-          password,
-          area: location,
-        }
-      );
+      // Clean the area string: lowercase and replace spaces with hyphens
+      const cleanArea = formData.location.toLowerCase().trim().replace(/\s+/g, "-");
+      
+      await axios.post("https://hoodconnect-backend.onrender.com/register", {
+        ...formData,
+        area: cleanArea
+      });
 
-      console.log("REGISTER SUCCESS:", res.data);
-
-      alert("Registration Successful");
+      alert("Account created! Please login.");
       navigate("/");
-
     } catch (error) {
-      console.log("REGISTER ERROR FULL:", error);
-      console.log("REGISTER ERROR DATA:", error.response?.data);
-
       alert(error.response?.data?.error || "Registration Failed");
     }
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-r from-purple-500 to-blue-600">
-      <div className="bg-white p-8 rounded-2xl shadow-2xl w-96">
-        
-        <h2 className="text-4xl font-extrabold text-center mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 tracking-widest">
-          HOODCONNECT
-        </h2>
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900">
+      <div className="bg-white/10 backdrop-blur-lg p-8 rounded-[2.5rem] shadow-2xl w-96 border border-white/20">
+        <h2 className="text-4xl font-black text-center mb-2 text-white tracking-tighter">JOIN THE HOOD</h2>
+        <p className="text-center text-purple-200 mb-8 text-sm">Secure neighborhood networking</p>
 
-        <p className="text-center text-gray-500 mb-6 text-sm">
-          Create your account
-        </p>
-
-        <input
-          type="text"
-          placeholder="Name"
-          className="w-full border p-3 mb-3 rounded-lg"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-
-        <input
-          type="email"
-          placeholder="Email"
-          className="w-full border p-3 mb-3 rounded-lg"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-
-        <input
-          type="password"
-          placeholder="Password"
-          className="w-full border p-3 mb-3 rounded-lg"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-
-        <input
-          type="text"
-          placeholder="Location"
-          className="w-full border p-3 mb-4 rounded-lg"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-        />
-
-        <button
-          onClick={handleRegister}
-          className="w-full bg-purple-600 text-white p-3 rounded-lg hover:bg-purple-700"
-        >
-          Register
-        </button>
-
+        <div className="space-y-3">
+          {['name', 'email', 'password', 'location'].map((field) => (
+            <input
+              key={field}
+              type={field === 'password' ? 'password' : 'text'}
+              placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+              className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-purple-400 transition-all"
+              value={formData[field]}
+              onChange={(e) => setFormData({...formData, [field]: e.target.value})}
+            />
+          ))}
+          <button onClick={handleRegister} className="w-full bg-purple-500 text-white font-black p-4 rounded-2xl hover:bg-purple-400 transition-all shadow-lg mt-2">Register Now</button>
+        </div>
       </div>
     </div>
   );

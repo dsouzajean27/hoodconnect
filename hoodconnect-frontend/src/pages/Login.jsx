@@ -8,80 +8,42 @@ export default function Login() {
   const navigate = useNavigate();
 
   const handleLogin = async () => {
-  try {
-    const res = await axios.post("https://hoodconnect-backend.onrender.com/login", {
-      email,
-      password,
-    });
+    try {
+      const res = await axios.post("https://hoodconnect-backend.onrender.com/login", { email, password });
 
-    console.log("LOGIN RESPONSE:", res.data);
+      if (res.data.user) {
+        // Format the user object strictly for the Dashboard
+        const userData = {
+          id: res.data.user._id,
+          name: res.data.user.name,
+          area: res.data.user.area?.toLowerCase().replace(/\s+/g, "-") || "unknown"
+        };
 
-    // ✅ IMPORTANT CHECK (adjust based on backend)
-    if (res.data.message === "Login success") {
-  alert("Login Successful");
-
-  // 🔥 SAVE USER
-  localStorage.setItem("user", JSON.stringify(res.data.user));
-
-  navigate("/dashboard");
-}
-    else {
-      alert("Invalid credentials");
-    }
-
-  } catch (error) {
-      console.log("LOGIN ERROR FULL:", error);
-      console.log("LOGIN ERROR DATA:", error.response?.data);
-
+        localStorage.setItem("user", JSON.stringify(userData));
+        alert("Welcome back!");
+        navigate("/dashboard");
+      }
+    } catch (error) {
       alert(error.response?.data?.message || "Login Failed");
     }
-};
-
+  };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600">
-    <div className="bg-white p-8 rounded-2xl shadow-2xl w-96">
-      
-      <h2 className="text-4xl font-extrabold text-center mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 tracking-widest">
-      HOODCONNECT</h2>
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-900">
+      <div className="bg-white/10 backdrop-blur-lg p-8 rounded-[2.5rem] shadow-2xl w-96 border border-white/20">
+        <h2 className="text-4xl font-black text-center mb-2 text-white tracking-tighter">HOODCONNECT</h2>
+        <p className="text-center text-blue-200 mb-8 text-sm font-medium">Your neighborhood, synchronized.</p>
 
+        <div className="space-y-4">
+          <input type="email" placeholder="Email" className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-blue-400 transition-all" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="password" placeholder="Password" className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-blue-400 transition-all" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button onClick={handleLogin} className="w-full bg-white text-blue-900 font-black p-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg">Login</button>
+        </div>
 
-      <p className="text-center text-gray-500 mb-6">
-        Connect with your neighborhood
-      </p>
-
-      <input
-        type="email"
-        placeholder="Email"
-        className="w-full border p-3 mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-
-      <input
-        type="password"
-        placeholder="Password"
-        className="w-full border p-3 mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
-
-      <button
-        onClick={handleLogin}
-        className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 transition duration-200"
-      >
-        Login
-      </button>
-
-      <p className="text-center text-sm text-gray-500 mt-4">
-        Don’t have an account?{" "}
-        <span onClick={() => navigate("/register")}
-         className="text-blue-600 cursor-pointer hover:underline">
-         Register
-        </span>
-      </p>
-
+        <p className="text-center text-sm text-blue-100 mt-6">
+          New here? <span onClick={() => navigate("/register")} className="font-bold cursor-pointer underline">Create Account</span>
+        </p>
+      </div>
     </div>
-  </div>
-);
+  );
 }

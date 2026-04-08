@@ -180,15 +180,6 @@ export default function Dashboard() {
     if (!user?.area || !socketRef.current) return;
     const area = user.area.toLowerCase().replace(/\s/g, "-");
     socketRef.current.emit("joinRoom", { area });
-    // Join personal room for notifications
-    if (user?.id) {
-      socketRef.current.emit("joinUserRoom", { userId: user.id });
-    }
-
-    // Listen for incoming notifications
-    socketRef.current.on("newNotification", (notif) => {
-      setNotifications(prev => [notif, ...prev]);
-    });
   }, [user?.area]);
 
   // ── Fetch posts on mount + when area changes ───────────────────────────────

@@ -358,7 +358,7 @@ export default function Dashboard() {
       if (!commentText[postId]) return;
       await axios.post(
         `${BASE_URL}/posts/${postId}/comment`,
-        { text: commentText[postId], userName: user?.name || "Anonymous" },
+        { text: commentText[postId], userName: user?.name || "Anonymous", userId: user?.id }, 
         { headers: authHeaders() }
       );
       setCommentText({ ...commentText, [postId]: "" });
@@ -572,7 +572,10 @@ export default function Dashboard() {
             >
               {/* HEADER */}
               <div className="p-4">
-                <p className="font-semibold text-sm text-gray-700">
+                <p
+                  className="font-semibold text-sm text-gray-700 cursor-pointer hover:text-purple-600"
+                  onClick={() => post.userId && navigate(`/profile/${post.userId}`)}
+                >
                   👤 {post.userName || "Anonymous"}
                 </p>
                 <p className="text-xs text-gray-500">
@@ -662,7 +665,12 @@ export default function Dashboard() {
                 <div className="mt-3">
                   {post.comments?.map((c, i) => (
                     <p key={i} className="text-sm text-gray-700">
-                      <b>{c.userName}:</b> {c.text}
+                      <b
+                        className="cursor-pointer hover:text-purple-600"
+                        onClick={() => c.userId && navigate(`/profile/${c.userId}`)}
+                      >
+                        {c.userName}:
+                      </b> {c.text}
                     </p>
                   ))}
                 </div>

@@ -117,6 +117,7 @@ const User = require("./models/user");
 const Post = require("./models/post");
 const Area = require("./models/area");
 const Notification = require("./models/notification");
+//GET /profile/:userId 
 
 
 // ================= DB CONNECTION =================
@@ -401,6 +402,7 @@ app.put("/posts/:id/like", authMiddleware, async (req, res) => {
 
 app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
   try {
+
     const { text, userName } = req.body;
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
@@ -521,6 +523,52 @@ app.put("/notifications/:userId/read", authMiddleware, async (req, res) => {
       { read: true }
     );
     res.json({ message: "Marked as read" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+//=================profile userid==================
+app.get("/profile/:userId", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const posts = await Post.find({ 
+      userId: req.params.userId,
+      anonymous: false  // don't show anonymous posts on profile
+    }).sort({ createdAt: -1 });
+
+    // Calculate trust score across all posts
+    const trustScore = posts.reduce((total, post) => {
+      return total + post.trustUpvotes.length - post.trustDownvotes.length;
+    }, 0);
+
+    res.json({
+      user: {
+        id: user._id,
+        name: user.name,
+        area: user.area,
+        createdAt: user.createdAt,
+      },
+      posts,
+      trustScore,
+      postCount: posts.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/users/:userId/area", authMiddleware, async (req, res) => {
+  try {
+    if (req.userId !== req.params.userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const area = req.body.area?.toLowerCase().replace(/\s/g, "-");
+    await User.findByIdAndUpdate(req.params.userId, { area });
+    await saveArea(area);
+    res.json({ message: "Area updated" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

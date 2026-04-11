@@ -420,6 +420,13 @@ export default function Dashboard() {
   return colors[type] || "";
 }
 
+const tagStyles = {
+  emergency: "bg-red-100 text-red-600",
+  event: "bg-yellow-100 text-yellow-600",
+  casual: "bg-blue-100 text-blue-600",
+  promotional: "bg-green-100 text-green-600",
+};
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
@@ -431,13 +438,15 @@ export default function Dashboard() {
         <h1 className="text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-sm hover:scale-105 transition">
           HOODCONNECT
         </h1>
+      </div>
 
+      <div className="flex-1 max-w-xl px-6">
         <input
-            className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"
-            placeholder="Search posts..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-primary"
+          placeholder="Search posts..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
 
         <div className="flex items-center gap-4">
@@ -508,7 +517,7 @@ export default function Dashboard() {
 
           <button
             onClick={handleLogout}
-            className="bg-red-500 px-4 py-2 rounded-lg"
+            className="bg-danger text-white px-4 py-2 rounded-xl"
           >
             Logout
           </button>
@@ -521,9 +530,7 @@ export default function Dashboard() {
 
         {/* LEFT SIDEBAR */}
         <div
-          className={`bg-white border border-gray-200 shadow-sm p-4 rounded-2xl h-fit sticky top-6 ${
-            collapsed ? "w-20" : "w-64"
-          }`}
+          className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
         >
           <button onClick={() => setCollapsed(!collapsed)} className="mb-4">
             <Menu />
@@ -564,7 +571,7 @@ export default function Dashboard() {
                 onClick={() => setType(f.key)}
                 className={`flex items-center gap-3 w-full p-2 rounded-lg transition ${
                   type === f.key
-                    ? getCategoryColor(f.key, true)
+                    ? "bg-primary/10 text-primary"
                     : "hover:bg-gray-100"
                 }`}
               >
@@ -597,7 +604,7 @@ export default function Dashboard() {
 
           {/* POST CARDS */}
           {filteredPosts.length === 0 && (
-            <div className="text-center text-white/40 py-16">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition mb-6">
               {showBookmarks
                 ? "No saved posts yet. Bookmark posts to see them here."
                 : "No posts in this area yet. Be the first!"}
@@ -698,8 +705,13 @@ export default function Dashboard() {
                 </div>
               )}
 
-              <h3 className="px-4 font-bold text-purple-600">{post.title}</h3>
-              <p className="px-4 pb-2">{post.content}</p>
+              <h3 className="text-base font-semibold text-primary">
+                {post.title}
+              </h3>
+
+              <p className="text-sm text-gray-700">
+                {post.content}
+              </p>
 
               {post.image && (
                 <img
@@ -784,7 +796,7 @@ export default function Dashboard() {
               {/* COMMENTS */}
               <div className="px-4 pb-4">
                 <input
-                  className="w-full p-2 border rounded mb-2 text-black"
+                  className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Write a comment..."
                   value={commentText[post._id] || ""}
                   onChange={(e) =>
@@ -821,10 +833,10 @@ export default function Dashboard() {
         </div>
 
         {/* RIGHT SIDEBAR */}
-        <div className="w-72 space-y-4 sticky top-6 h-fit">
+        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
 
           {/* USER CARD */}
-          <div className="bg-white border border-gray-200 shadow-sm p-5 rounded-2xl">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition">
             <div className="text-center">
               <div
                 className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl cursor-pointer hover:bg-purple-400 transition"
@@ -873,7 +885,7 @@ export default function Dashboard() {
           </div>
 
           {/* LEADERBOARD CARD */}
-          <div className="bg-white border border-gray-200 shadow-sm p-5 rounded-2xl">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition">
             <h3 className="font-bold flex items-center gap-2 mb-3">
               <Trophy size={16} className="text-yellow-400" />
               Hood Leaderboard
@@ -922,7 +934,7 @@ export default function Dashboard() {
             </h2>
 
             <input
-              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
+              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -934,8 +946,7 @@ export default function Dashboard() {
               onChange={(e) => setContent(e.target.value)}
             />
             <input
-              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
-              placeholder="Location (where is this about?)"
+              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
             />
@@ -1058,7 +1069,7 @@ export default function Dashboard() {
           <div className="bg-white text-black p-6 rounded-2xl w-[350px] text-center">
             <h2 className="text-xl font-bold mb-4">📍 Enter Your Area</h2>
             <input
-              className="w-full p-3 border rounded mb-4"
+              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="e.g. Andheri, Borivali, Majiwada"
               value={tempArea}
               onChange={(e) => setTempArea(e.target.value)}

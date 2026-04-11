@@ -21,11 +21,11 @@ export default {
         warning: "#F59E0B",
         danger: "#EF4444",
         info: "#3B82F6",
-      }
-    }
-  }
+      },
+    },
+  },
   fontFamily: {
     sans: ["Inter", "sans-serif"],
-  }
+  },
   plugins: [],
-}
+};

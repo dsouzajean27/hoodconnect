@@ -5,21 +5,19 @@ import {
   Globe, AlertTriangle, Calendar, User, Megaphone,
   Menu, Bookmark, BookmarkCheck, Trophy,
   MapPin, Bell, LogOut, Plus, ChevronRight, X,
-  Camera, Image, Video, Navigation,
+  Camera, Image, Video, Navigation, ZoomIn,
+  Home, Search, Flag,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import logo from "../assets/logo.png";
 
-// ── Emergency sound (Web Audio API — no external URL needed) ─────────────────
-// Generates a siren-like tone so it always works, even offline
+// ── Emergency sound ───────────────────────────────────────────────────────────
 function playEmergencySound() {
   try {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.4, ctx.currentTime);
     gain.connect(ctx.destination);
-
-    // Two alternating tones like a siren
     [0, 0.6, 1.2, 1.8].forEach((t, i) => {
       const osc  = ctx.createOscillator();
       osc.type   = "sine";
@@ -28,11 +26,8 @@ function playEmergencySound() {
       osc.start(ctx.currentTime + t);
       osc.stop(ctx.currentTime + t + 0.5);
     });
-
     setTimeout(() => ctx.close(), 3000);
-  } catch (e) {
-    console.log("Audio error:", e);
-  }
+  } catch (e) { console.log("Audio error:", e); }
 }
 
 const BASE_URL = "https://hoodconnect-backend.onrender.com";
@@ -50,7 +45,6 @@ const TAG = {
 };
 const TYPE_ICON = { emergency:"🚨", event:"📅", casual:"💬", promotional:"📢" };
 
-// ── Google Maps URL builder ───────────────────────────────────────────────────
 function mapsUrl(lat, lng, label) {
   if (lat && lng) return `https://www.google.com/maps?q=${lat},${lng}`;
   if (label)      return `https://www.google.com/maps/search/${encodeURIComponent(label)}`;
@@ -65,9 +59,10 @@ export default function Dashboard() {
   const [type, setType]           = useState("all");
   const [search, setSearch]       = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [showSearch, setShowSearch] = useState(false); // mobile search toggle
 
-  const [image, setImage]             = useState(null);
-  const [video, setVideo]             = useState(null);
+  const [image, setImage]               = useState(null);
+  const [video, setVideo]               = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
 
   const [latitude, setLatitude]   = useState("");
@@ -77,6 +72,7 @@ export default function Dashboard() {
   const [tempArea, setTempArea] = useState("");
   const [areas, setAreas]       = useState([]);
 
+  // ── FIX 5: notifications now fetched on mount + socket ───────────────────
   const [notifications, setNotifications]         = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -94,27 +90,28 @@ export default function Dashboard() {
   const [leaderboard, setLeaderboard]   = useState([]);
   const [showBookmarks, setShowBookmarks] = useState(false);
 
+  // ── FIX 4: Lightbox state ─────────────────────────────────────────────────
+  const [lightbox, setLightbox] = useState(null); // { type: 'image'|'video', src }
+
   // ── Camera modal state ────────────────────────────────────────────────────
-  const [showCamera, setShowCamera]           = useState(false);
-  const [cameraStream, setCameraStream]       = useState(null);
-  const [capturedPhoto, setCapturedPhoto]     = useState(null);  // blob URL
-  const [capturedBlob, setCapturedBlob]       = useState(null);  // actual blob
-  const [cameraFacing, setCameraFacing]       = useState("environment"); // rear default
-  const [cameraGPS, setCameraGPS]             = useState(null);  // { lat, lng, address }
-  const [cameraMode, setCameraMode]           = useState("photo"); // "photo" | "video"
-  const [isRecording, setIsRecording]         = useState(false);
-  const [recordedChunks, setRecordedChunks]   = useState([]);
+  const [showCamera, setShowCamera]         = useState(false);
+  const [cameraStream, setCameraStream]     = useState(null);
+  const [capturedPhoto, setCapturedPhoto]   = useState(null);
+  const [capturedBlob, setCapturedBlob]     = useState(null);
+  const [cameraFacing, setCameraFacing]     = useState("environment");
+  const [cameraGPS, setCameraGPS]           = useState(null);
+  const [cameraMode, setCameraMode]         = useState("photo");
+  const [isRecording, setIsRecording]       = useState(false);
 
-  // Geotagged data to attach to post
-  const [geotagged, setGeotagged]             = useState(false);
-  const [captureAddress, setCaptureAddress]   = useState(null);
-  const [captureLat, setCaptureLat]           = useState(null);
-  const [captureLng, setCaptureLng]           = useState(null);
+  const [geotagged, setGeotagged]         = useState(false);
+  const [captureAddress, setCaptureAddress] = useState(null);
+  const [captureLat, setCaptureLat]       = useState(null);
+  const [captureLng, setCaptureLng]       = useState(null);
 
-  const videoRef       = useRef(null);
-  const mediaRecRef    = useRef(null);
-  const seenAlertsRef  = useRef(new Set());
-  const socketRef      = useRef(null);
+  const videoRef      = useRef(null);
+  const mediaRecRef   = useRef(null);
+  const seenAlertsRef = useRef(new Set());
+  const socketRef     = useRef(null);
 
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem("user")); }
@@ -154,13 +151,30 @@ export default function Dashboard() {
     } catch (err) { console.log("fetchBookmarks:", err); }
   };
 
+  // ── FIX 5: fetch existing notifications on mount ──────────────────────────
+  const fetchNotifications = async () => {
+    if (!user?.id) return;
+    try {
+      const res = await axios.get(`${BASE_URL}/notifications/${user.id}`, { headers: authHeaders() });
+      setNotifications(res.data);
+    } catch (err) { console.log("fetchNotifications:", err); }
+  };
+
   // ── Socket ────────────────────────────────────────────────────────────────
   useEffect(() => {
     socketRef.current = io(BASE_URL, { transports: ["websocket"] });
     const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
     socketRef.current.emit("joinRoom", { area });
     if (user?.id) socketRef.current.emit("joinUserRoom", { userId: user.id });
-    socketRef.current.on("newNotification", (notif) => setNotifications((prev) => [notif, ...prev]));
+
+    // FIX 5: merge socket notification with existing, avoid duplicates by _id
+    socketRef.current.on("newNotification", (notif) => {
+      setNotifications((prev) => {
+        if (prev.some((n) => n._id === notif._id)) return prev;
+        return [notif, ...prev];
+      });
+    });
+
     socketRef.current.on("newPost", (post) => setPosts((prev) => [post, ...prev]));
     return () => socketRef.current.disconnect();
   }, []);
@@ -171,12 +185,19 @@ export default function Dashboard() {
   }, [user?.area]);
 
   useEffect(() => { fetchPosts(); fetchLeaderboard(user?.area); }, [user?.area]);
-  useEffect(() => { if (user?.id) fetchBookmarks(); }, [user?.id]);
+  useEffect(() => { if (user?.id) { fetchBookmarks(); fetchNotifications(); } }, [user?.id]);
   useEffect(() => { axios.get(`${BASE_URL}/areas`).then((res) => setAreas(res.data)); }, []);
 
   useEffect(() => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
     if (!storedUser?.area || storedUser.area === "unknown") setShowLocationModal(true);
+  }, []);
+
+  // ── FIX 4: ESC key closes lightbox ───────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") setLightbox(null); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   // ── Emergency alert ───────────────────────────────────────────────────────
@@ -185,7 +206,7 @@ export default function Dashboard() {
       const isRecent = new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
       if (post.type === "emergency" && post.alert && isRecent && !seenAlertsRef.current.has(post._id)) {
         setEmergencyPost(post);
-        playEmergencySound();   // ← Web Audio siren
+        playEmergencySound();
         seenAlertsRef.current.add(post._id);
       }
     });
@@ -230,11 +251,10 @@ export default function Dashboard() {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CAMERA MODAL LOGIC
+  // CAMERA MODAL LOGIC (unchanged from original)
   // ══════════════════════════════════════════════════════════════════════════
 
   const startCamera = useCallback(async (facing = cameraFacing) => {
-    // Stop any existing stream first
     if (cameraStream) { cameraStream.getTracks().forEach((t) => t.stop()); }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -243,8 +263,6 @@ export default function Dashboard() {
       });
       setCameraStream(stream);
       if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
-
-      // Grab GPS at camera open time
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
         setCameraGPS({ lat, lng });
@@ -257,10 +275,7 @@ export default function Dashboard() {
           setCaptureAddress(addr);
         } catch { setCaptureAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`); }
       }, () => {}, { enableHighAccuracy: true });
-
-    } catch (err) {
-      alert("Camera access denied or not available: " + err.message);
-    }
+    } catch (err) { alert("Camera access denied or not available: " + err.message); }
   }, [cameraFacing, cameraMode, cameraStream]);
 
   const stopCamera = useCallback(() => {
@@ -286,28 +301,22 @@ export default function Dashboard() {
     startCamera(next);
   };
 
-  // ── Capture photo ─────────────────────────────────────────────────────────
   const capturePhoto = () => {
     if (!videoRef.current) return;
     const canvas = document.createElement("canvas");
     canvas.width  = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext("2d");
-
-    // Draw frame
     ctx.drawImage(videoRef.current, 0, 0);
-
-    // Stamp geotag overlay if GPS available
     if (cameraGPS) {
       const stamp = `📍 ${captureAddress || `${cameraGPS.lat.toFixed(5)}, ${cameraGPS.lng.toFixed(5)}`}  •  ${new Date().toLocaleString()}`;
-      ctx.font         = "bold 18px monospace";
-      ctx.fillStyle    = "rgba(0,0,0,0.55)";
+      ctx.font      = "bold 18px monospace";
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
       const tw = ctx.measureText(stamp).width;
       ctx.fillRect(10, canvas.height - 42, tw + 20, 32);
-      ctx.fillStyle    = "#ffffff";
+      ctx.fillStyle = "#ffffff";
       ctx.fillText(stamp, 20, canvas.height - 18);
     }
-
     canvas.toBlob((blob) => {
       const url = URL.createObjectURL(blob);
       setCapturedPhoto(url);
@@ -317,7 +326,6 @@ export default function Dashboard() {
     }, "image/jpeg", 0.92);
   };
 
-  // ── Record video ──────────────────────────────────────────────────────────
   const startRecording = () => {
     if (!cameraStream) return;
     const chunks = [];
@@ -326,7 +334,7 @@ export default function Dashboard() {
     mr.onstop = () => {
       const blob = new Blob(chunks, { type: "video/webm" });
       const url  = URL.createObjectURL(blob);
-      setCapturedPhoto(url);   // reuse for preview
+      setCapturedPhoto(url);
       setCapturedBlob(blob);
       setGeotagged(true);
       stopCamera();
@@ -336,28 +344,20 @@ export default function Dashboard() {
     setIsRecording(true);
   };
 
-  const stopRecording = () => {
-    mediaRecRef.current?.stop();
-    setIsRecording(false);
-  };
+  const stopRecording = () => { mediaRecRef.current?.stop(); setIsRecording(false); };
 
-  // ── Use captured media in post ────────────────────────────────────────────
   const useCapturedMedia = () => {
     if (!capturedBlob) return;
     const ext  = cameraMode === "video" ? "webm" : "jpg";
     const file = new File([capturedBlob], `capture.${ext}`, { type: capturedBlob.type });
-    if (cameraMode === "video") {
-      setVideo(file);
-    } else {
-      setImage(file);
-      setImagePreview(capturedPhoto);
-    }
+    if (cameraMode === "video") { setVideo(file); }
+    else { setImage(file); setImagePreview(capturedPhoto); }
     setShowCamera(false);
     setShowModal(true);
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // POST HANDLERS
+  // POST HANDLERS (unchanged)
   // ══════════════════════════════════════════════════════════════════════════
 
   const handlePost = async () => {
@@ -375,12 +375,10 @@ export default function Dashboard() {
       formData.append("anonymous", String(anonymous));
       formData.append("alert",     String(alertUsers));
       formData.append("severity",  severity);
-      // Geotagged camera data
       formData.append("geotagged",      String(geotagged));
       if (captureLat)     formData.append("captureLat",     captureLat);
       if (captureLng)     formData.append("captureLng",     captureLng);
       if (captureAddress) formData.append("captureAddress", captureAddress);
-
       if (image) formData.append("image", image);
       if (video) formData.append("video", video);
 
@@ -429,7 +427,16 @@ export default function Dashboard() {
     } catch (err) { console.log("handleBookmark:", err); }
   };
 
-  const handleLogout   = () => { localStorage.removeItem("user"); localStorage.removeItem("token"); navigate("/"); };
+  // ── Report post ───────────────────────────────────────────────────────────
+  const handleReport = async (postId) => {
+    if (!window.confirm("Report this post?")) return;
+    try {
+      await axios.post(`${BASE_URL}/posts/${postId}/report`, { userId: user?.id }, { headers: authHeaders() });
+      alert("Post reported. Our team will review it.");
+    } catch (err) { console.log("handleReport:", err); }
+  };
+
+  const handleLogout = () => { localStorage.removeItem("user"); localStorage.removeItem("token"); navigate("/"); };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -441,14 +448,17 @@ export default function Dashboard() {
 
       {/* ── HEADER ── */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-        <div className="flex items-center gap-4 px-5 py-3">
+        <div className="flex items-center gap-2 md:gap-4 px-3 md:px-5 py-3">
+          {/* Logo */}
           <div className="flex items-center gap-2 shrink-0">
             <img src={logo} alt="logo" className="w-8 h-8 object-contain" />
-            <span className="text-xl font-black tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            <span className="text-lg md:text-xl font-black tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
               HOODCONNECT
             </span>
           </div>
-          <div className="flex-1 max-w-lg mx-auto">
+
+          {/* Desktop search */}
+          <div className="hidden md:block flex-1 max-w-lg mx-auto">
             <input
               className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
               placeholder="Search posts, locations..."
@@ -456,7 +466,16 @@ export default function Dashboard() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+
+          <div className="flex items-center gap-1.5 md:gap-2 shrink-0 ml-auto md:ml-0">
+            {/* Mobile search toggle */}
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition"
+            >
+              <Search size={17} />
+            </button>
+
             {/* Bell */}
             <div className="relative">
               <button
@@ -477,7 +496,7 @@ export default function Dashboard() {
                 )}
               </button>
               {showNotifications && (
-                <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                <div className="absolute right-0 top-11 w-72 md:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                     <span className="font-semibold text-gray-800 text-sm">Notifications</span>
                     <button onClick={() => setShowNotifications(false)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
@@ -485,7 +504,7 @@ export default function Dashboard() {
                   {notifications.length === 0 ? (
                     <p className="p-5 text-sm text-gray-400 text-center">You're all caught up 🎉</p>
                   ) : notifications.slice(0, 10).map((n, i) => (
-                    <div key={i} className={`px-4 py-3 border-b border-gray-50 text-sm ${!n.read ? "bg-blue-50/60" : ""}`}>
+                    <div key={n._id || i} className={`px-4 py-3 border-b border-gray-50 text-sm ${!n.read ? "bg-blue-50/60" : ""}`}>
                       <p className="text-gray-700">
                         <span className="font-semibold text-gray-900">{n.senderName}</span>{" "}
                         {n.type === "like" && "liked your post"}
@@ -498,18 +517,36 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            <button onClick={handleLogout} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 text-sm font-medium transition">
+
+            <button onClick={handleLogout} className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 text-sm font-medium transition">
               <LogOut size={15} /> Logout
+            </button>
+            {/* Mobile logout icon only */}
+            <button onClick={handleLogout} className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 hover:bg-red-100 text-red-500 transition">
+              <LogOut size={17} />
             </button>
           </div>
         </div>
+
+        {/* Mobile search bar (expandable) */}
+        {showSearch && (
+          <div className="md:hidden px-3 pb-2">
+            <input
+              autoFocus
+              className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+              placeholder="Search posts, locations..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        )}
       </header>
 
       {/* ── BODY ── */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 pb-16 md:pb-0">
 
-        {/* ── LEFT SIDEBAR ── */}
-        <aside className={`bg-white border-r border-gray-200 flex flex-col gap-1 py-4 px-2 shrink-0 transition-all duration-200 ${collapsed ? "w-14" : "w-48"}`}>
+        {/* ── LEFT SIDEBAR — desktop only ── */}
+        <aside className={`hidden md:flex bg-white border-r border-gray-200 flex-col gap-1 py-4 px-2 shrink-0 transition-all duration-200 ${collapsed ? "w-14" : "w-48"}`}>
           <button onClick={() => setCollapsed(!collapsed)} className="w-full flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 text-gray-400 mb-1 transition">
             <Menu size={17} />
           </button>
@@ -537,17 +574,16 @@ export default function Dashboard() {
         </aside>
 
         {/* ── CENTER FEED ── */}
-        <main className="flex-1 py-5 px-4 overflow-y-auto" style={{ maxWidth: 640, margin: "0 auto" }}>
+        <main className="flex-1 py-4 md:py-5 px-3 md:px-4 overflow-y-auto w-full" style={{ maxWidth: 640, margin: "0 auto" }}>
 
           {/* Action buttons row */}
-          <div className="flex gap-2 mb-5">
+          <div className="flex gap-2 mb-4 md:mb-5">
             <button
               onClick={() => setShowModal(true)}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-sm shadow-md hover:shadow-lg hover:from-blue-700 hover:to-purple-700 transition"
             >
               <Plus size={17} /> Create Post
             </button>
-            {/* Camera quick-launch */}
             <button
               onClick={openCameraModal}
               title="Geotagged camera"
@@ -555,6 +591,19 @@ export default function Dashboard() {
             >
               <Camera size={17} /> <span className="hidden sm:inline">Camera</span>
             </button>
+          </div>
+
+          {/* Mobile filter chips */}
+          <div className="md:hidden flex gap-2 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+            {filters.map((f) => {
+              const Icon = f.icon, active = type === f.key;
+              return (
+                <button key={f.key} onClick={() => setType(f.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 ${active ? "bg-purple-600 text-white" : "bg-white border border-gray-200 text-gray-600"}`}>
+                  <Icon size={13} /> {f.label}
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex items-center gap-2 mb-4">
@@ -572,7 +621,7 @@ export default function Dashboard() {
 
           {/* ── POST CARDS ── */}
           {filteredPosts.map((post) => (
-            <article key={post._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-5 overflow-hidden hover:shadow-md transition">
+            <article key={post._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 md:mb-5 overflow-hidden hover:shadow-md transition">
 
               {post.type === "emergency" && post.alert && (
                 <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white px-4 py-2 text-xs font-bold tracking-wide flex items-center gap-2">
@@ -600,7 +649,6 @@ export default function Dashboard() {
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TAG[post.type] || "bg-gray-100 text-gray-500"}`}>
                         {TYPE_ICON[post.type]} {post.type}
                       </span>
-                      {/* Geotagged badge */}
                       {post.geotagged && (
                         <span className="text-[10px] bg-green-100 text-green-600 border border-green-200 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-0.5">
                           <Navigation size={9} /> Geotagged
@@ -612,12 +660,18 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <button onClick={() => handleBookmark(post._id)} className="p-1.5 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-purple-600 transition">
-                  {bookmarks.has(post._id) ? <BookmarkCheck size={17} className="text-purple-600" /> : <Bookmark size={17} />}
-                </button>
+                <div className="flex items-center gap-1">
+                  {/* Report button */}
+                  <button onClick={() => handleReport(post._id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition" title="Report post">
+                    <Flag size={14} />
+                  </button>
+                  <button onClick={() => handleBookmark(post._id)} className="p-1.5 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-purple-600 transition">
+                    {bookmarks.has(post._id) ? <BookmarkCheck size={17} className="text-purple-600" /> : <Bookmark size={17} />}
+                  </button>
+                </div>
               </div>
 
-              {/* Location → Google Maps link */}
+              {/* Location */}
               <div className="px-4 pb-2">
                 {mapsUrl(post.targetLat || post.originLat, post.targetLng || post.originLng, post.targetAddress) ? (
                   <a
@@ -640,8 +694,6 @@ export default function Dashboard() {
                     <span className="truncate">{post.targetAddress || post.originAddress || "Unknown"}</span>
                   </p>
                 )}
-
-                {/* Capture location link for geotagged posts */}
                 {post.geotagged && post.captureLat && (
                   <a
                     href={`https://www.google.com/maps?q=${post.captureLat},${post.captureLng}`}
@@ -660,9 +712,30 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-600 mt-1 leading-relaxed">{post.content}</p>
               </div>
 
-              {/* Media */}
-              {post.image && <img src={post.image} className="w-full max-h-72 object-cover" onError={(e) => (e.target.style.display="none")} alt="post" />}
-              {post.video && <video src={post.video} controls className="w-full" />}
+              {/* FIX 4: Media — clickable to open lightbox */}
+              {post.image && (
+                <div className="relative group cursor-pointer" onClick={() => setLightbox({ type: "image", src: post.image })}>
+                  <img
+                    src={post.image}
+                    className="w-full max-h-72 object-cover"
+                    onError={(e) => (e.target.style.display="none")}
+                    alt="post"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center">
+                    <ZoomIn size={28} className="text-white opacity-0 group-hover:opacity-100 transition drop-shadow-lg" />
+                  </div>
+                </div>
+              )}
+              {post.video && (
+                <div className="relative group cursor-pointer" onClick={() => setLightbox({ type: "video", src: post.video })}>
+                  <video src={post.video} className="w-full max-h-72 object-cover pointer-events-none" />
+                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                      <div className="w-0 h-0 border-t-[8px] border-b-[8px] border-l-[14px] border-transparent border-l-purple-600 ml-1" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Trust bar */}
               {(post.trustUpvotes?.length > 0 || post.trustDownvotes?.length > 0) && (
@@ -684,15 +757,15 @@ export default function Dashboard() {
 
               {/* Actions */}
               <div className="flex items-center gap-1 px-3 py-2 border-t border-gray-50 flex-wrap">
-                <button onClick={() => handleTrust(post._id,"up")}    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-green-50 hover:text-green-600 transition">👍 {post.trustUpvotes?.length||0}</button>
-                <button onClick={() => handleTrust(post._id,"down")}  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-red-50 hover:text-red-500 transition">👎 {post.trustDownvotes?.length||0}</button>
-                <button onClick={() => handleLike(post._id)}          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-pink-50 hover:text-pink-500 transition">❤️ {post.likes?.length||0}</button>
+                <button onClick={() => handleTrust(post._id,"up")}   className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-green-50 hover:text-green-600 transition">👍 {post.trustUpvotes?.length||0}</button>
+                <button onClick={() => handleTrust(post._id,"down")} className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-red-50 hover:text-red-500 transition">👎 {post.trustDownvotes?.length||0}</button>
+                <button onClick={() => handleLike(post._id)}         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-pink-50 hover:text-pink-500 transition">❤️ {post.likes?.length||0}</button>
                 <button onClick={() => setOpenComments((p) => ({...p,[post._id]:!p[post._id]}))}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${openComments[post._id]?"bg-blue-100 text-blue-600":"text-gray-500 hover:bg-blue-50 hover:text-blue-500"}`}>
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition ${openComments[post._id]?"bg-blue-100 text-blue-600":"text-gray-500 hover:bg-blue-50 hover:text-blue-500"}`}>
                   💬 {post.comments?.length||0}
                 </button>
                 <div className="flex-1" />
-                <span className="text-[11px] text-gray-300 px-1">⏳ {getTimeLeft(post.createdAt)}</span>
+                <span className="text-[11px] text-gray-300 px-1 hidden sm:inline">⏳ {getTimeLeft(post.createdAt)}</span>
                 {post.userId === user?.id && (
                   <>
                     <button onClick={() => handleEdit(post._id)}   className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">✏️</button>
@@ -734,8 +807,8 @@ export default function Dashboard() {
           ))}
         </main>
 
-        {/* ── RIGHT SIDEBAR ── */}
-        <aside className="w-60 shrink-0 py-5 px-3 space-y-4">
+        {/* ── RIGHT SIDEBAR — desktop only ── */}
+        <aside className="hidden lg:block w-60 shrink-0 py-5 px-3 space-y-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
             <div className="flex flex-col items-center text-center">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black cursor-pointer hover:scale-105 transition shadow"
@@ -746,16 +819,9 @@ export default function Dashboard() {
                 <span className="font-bold text-gray-800 text-sm">{user?.name||"Unknown"}</span>
                 {user?.verified && <span className="text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold">✓</span>}
               </div>
-              {/* Aadhaar status badge */}
-              {user?.aadhaarStatus === "pending" && (
-                <span className="mt-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold">🕐 ID Review Pending</span>
-              )}
-              {user?.aadhaarStatus === "verified" && (
-                <span className="mt-1 text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-semibold">🛡️ ID Verified</span>
-              )}
-              {user?.aadhaarStatus === "rejected" && (
-                <span className="mt-1 text-[10px] bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-semibold">❌ ID Rejected</span>
-              )}
+              {user?.aadhaarStatus === "pending"  && <span className="mt-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold">🕐 ID Review Pending</span>}
+              {user?.aadhaarStatus === "verified" && <span className="mt-1 text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-semibold">🛡️ ID Verified</span>}
+              {user?.aadhaarStatus === "rejected" && <span className="mt-1 text-[10px] bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-semibold">❌ ID Rejected</span>}
               <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><MapPin size={10}/>{user?.area?.replace(/-/g," ")||"No area"}</p>
               <select className="mt-3 w-full px-2 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                 value={user?.area||""}
@@ -797,16 +863,76 @@ export default function Dashboard() {
         </aside>
       </div>
 
+      {/* ── MOBILE BOTTOM NAV ── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30 flex items-center justify-around px-2 py-2">
+        <button onClick={() => setType("all")}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-medium transition ${type==="all" ? "text-purple-600" : "text-gray-400"}`}>
+          <Home size={20} />
+          All
+        </button>
+        <button onClick={() => setType("emergency")}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-medium transition ${type==="emergency" ? "text-red-500" : "text-gray-400"}`}>
+          <AlertTriangle size={20} />
+          SOS
+        </button>
+        {/* FAB create */}
+        <button onClick={() => setShowModal(true)}
+          className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-lg -mt-4">
+          <Plus size={22} />
+        </button>
+        <button onClick={() => setShowBookmarks(!showBookmarks)}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-medium transition ${showBookmarks ? "text-purple-600" : "text-gray-400"}`}>
+          <Bookmark size={20} />
+          Saved
+        </button>
+        <button onClick={() => user?.id && navigate(`/profile/${user.id}`)}
+          className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl text-[10px] font-medium text-gray-400">
+          <User size={20} />
+          Profile
+        </button>
+      </nav>
+
       {/* ══════════════════════════════════════════════════════════════════
-          CAMERA MODAL
+          FIX 4: LIGHTBOX MODAL
+      ══════════════════════════════════════════════════════════════════ */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+            onClick={() => setLightbox(null)}
+          >
+            <X size={20} />
+          </button>
+          <div onClick={(e) => e.stopPropagation()} className="max-w-full max-h-full">
+            {lightbox.type === "image" ? (
+              <img
+                src={lightbox.src}
+                className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl"
+                alt="full view"
+              />
+            ) : (
+              <video
+                src={lightbox.src}
+                controls
+                autoPlay
+                className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl"
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          CAMERA MODAL (unchanged)
       ══════════════════════════════════════════════════════════════════ */}
       {showCamera && (
         <div className="fixed inset-0 bg-black z-50 flex flex-col">
-          {/* Camera toolbar */}
           <div className="flex items-center justify-between px-4 py-3 bg-black/80">
             <button onClick={closeCameraModal} className="text-white p-2 rounded-xl hover:bg-white/10 transition"><X size={20}/></button>
             <div className="flex items-center gap-2">
-              {/* Mode toggle */}
               <div className="flex bg-white/10 rounded-xl p-0.5">
                 {["photo","video"].map((m) => (
                   <button key={m} onClick={() => { setCameraMode(m); if(cameraStream) startCamera(cameraFacing); }}
@@ -816,13 +942,9 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            {/* Flip camera */}
-            <button onClick={flipCamera} className="text-white p-2 rounded-xl hover:bg-white/10 transition" title="Flip camera">
-              🔄
-            </button>
+            <button onClick={flipCamera} className="text-white p-2 rounded-xl hover:bg-white/10 transition">🔄</button>
           </div>
 
-          {/* Video preview or captured photo */}
           <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
             {capturedPhoto ? (
               cameraMode === "video"
@@ -831,16 +953,12 @@ export default function Dashboard() {
             ) : (
               <video ref={videoRef} className="max-h-full max-w-full object-contain" playsInline muted />
             )}
-
-            {/* GPS overlay */}
             {cameraGPS && !capturedPhoto && (
               <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-xl flex items-center gap-2">
                 <Navigation size={12} className="text-green-400 shrink-0" />
                 <span className="truncate">{captureAddress || `${cameraGPS.lat.toFixed(5)}, ${cameraGPS.lng.toFixed(5)}`}</span>
               </div>
             )}
-
-            {/* Recording indicator */}
             {isRecording && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-red-600 text-white text-xs px-3 py-1.5 rounded-full">
                 <span className="w-2 h-2 bg-white rounded-full animate-pulse" /> Recording...
@@ -848,7 +966,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Bottom controls */}
           <div className="bg-black/80 px-6 py-5 flex items-center justify-center gap-8">
             {capturedPhoto ? (
               <>
@@ -863,13 +980,11 @@ export default function Dashboard() {
               </>
             ) : (
               cameraMode === "photo" ? (
-                /* Shutter button */
                 <button onClick={capturePhoto}
                   className="w-16 h-16 rounded-full bg-white border-4 border-purple-500 hover:scale-95 transition shadow-lg flex items-center justify-center">
                   <Camera size={24} className="text-purple-600" />
                 </button>
               ) : (
-                /* Record button */
                 <button
                   onClick={isRecording ? stopRecording : startRecording}
                   className={`w-16 h-16 rounded-full border-4 transition shadow-lg flex items-center justify-center ${isRecording?"bg-red-500 border-red-300 animate-pulse":"bg-white border-red-500"}`}>
@@ -883,13 +998,15 @@ export default function Dashboard() {
 
       {/* ── CREATE POST MODAL ── */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
+          <div className="bg-white rounded-t-3xl md:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-purple-600">
+              {/* Mobile drag handle */}
+              <div className="md:hidden absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1 bg-white/40 rounded-full" />
               <h2 className="font-bold text-white text-base">Create Post</h2>
               <button onClick={() => setShowModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition"><X size={14}/></button>
             </div>
-            <div className="px-6 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
+            <div className="px-6 py-4 space-y-3 max-h-[75vh] md:max-h-[70vh] overflow-y-auto">
               <input className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
                 placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
               <textarea rows={3} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition resize-none"
@@ -900,7 +1017,6 @@ export default function Dashboard() {
                 📍 Use My Current Location
               </button>
 
-              {/* Geotagged indicator */}
               {geotagged && captureAddress && (
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-xs text-green-700">
                   <Navigation size={12} /> <span className="truncate">Geotagged: {captureAddress}</span>
@@ -932,7 +1048,6 @@ export default function Dashboard() {
                 </label>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {/* Camera button inside modal */}
                 <button onClick={() => { setShowModal(false); openCameraModal(); }}
                   className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-purple-300 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 transition font-medium">
                   <Camera size={18}/> Camera
@@ -966,7 +1081,6 @@ export default function Dashboard() {
             <h2 className="text-xl font-black mb-2">EMERGENCY ALERT</h2>
             <h3 className="text-base font-semibold opacity-90">{emergencyPost.title}</h3>
             <p className="mt-2 text-sm opacity-80">{emergencyPost.content}</p>
-            {/* Maps link on emergency popup too */}
             {(emergencyPost.targetLat || emergencyPost.originLat) && (
               <a href={mapsUrl(emergencyPost.targetLat||emergencyPost.originLat, emergencyPost.targetLng||emergencyPost.originLng)} target="_blank" rel="noopener noreferrer"
                 className="mt-3 inline-flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-xl transition">

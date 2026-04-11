@@ -57,7 +57,6 @@ function authMiddleware(req, res, next) {
 }
 
 // ── Admin middleware ──────────────────────────────────────────────────────────
-// Set ADMIN_SECRET in Render env vars. Pass it as Authorization: Bearer <ADMIN_SECRET>
 function adminMiddleware(req, res, next) {
   const token = req.headers["authorization"]?.split(" ")[1];
   if (!token || token !== process.env.ADMIN_SECRET) {
@@ -80,13 +79,11 @@ async function checkAndGrantVerified(userId) {
 // ── Socket ────────────────────────────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
-
   socket.on("joinRoom", ({ area }) => {
     for (const room of socket.rooms) { if (room !== socket.id) socket.leave(room); }
     const norm = area.toLowerCase().replace(/\s/g, "-");
     socket.join(norm);
   });
-
   socket.on("joinUserRoom", ({ userId }) => { socket.join(`user:${userId}`); });
   socket.on("disconnect", () => console.log("User disconnected:", socket.id));
 });
@@ -115,26 +112,19 @@ app.post("/register", async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(req.body.password, 10);
     const area = (req.body.area || req.body.location || "unknown").toLowerCase().replace(/\s/g, "-");
-
-    // Aadhaar: frontend sends only last 4 digits after masking
     const aadhaarLast4 = req.body.aadhaarLast4 || null;
-
     const newUser = new User({
       name:          req.body.name,
       email:         req.body.email,
       password:      hashedPassword,
       area,
       aadhaarLast4,
-      // If Aadhaar was provided → pending review; otherwise not_submitted
       aadhaarStatus: aadhaarLast4 ? "pending" : "not_submitted",
     });
-
     await newUser.save();
     await saveArea(area);
     res.json({ message: "User registered" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/login", async (req, res) => {
@@ -143,11 +133,13 @@ app.post("/login", async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: "User not found" });
 
+    // FIX: block banned users from logging in
+    if (user.banned) return res.status(403).json({ message: "Your account has been suspended. Contact support." });
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Wrong password" });
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
-
     res.json({
       message: "Login success",
       token,
@@ -158,19 +150,16 @@ app.post("/login", async (req, res) => {
         area:          user.area,
         verified:      user.verified,
         aadhaarStatus: user.aadhaarStatus,
+        warnings:      user.warnings,
       },
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
 // ADMIN — AADHAAR REVIEW ROUTES
-// All protected by ADMIN_SECRET header (not JWT)
 // ═════════════════════════════════════════════════════════════════════════════
 
-// GET /admin/aadhaar-pending  — list users awaiting review
 app.get("/admin/aadhaar-pending", adminMiddleware, async (req, res) => {
   try {
     const users = await User.find({ aadhaarStatus: "pending" })
@@ -180,7 +169,6 @@ app.get("/admin/aadhaar-pending", adminMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /admin/aadhaar/:userId/approve
 app.put("/admin/aadhaar/:userId/approve", adminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.params.userId, { aadhaarStatus: "verified" });
@@ -188,7 +176,6 @@ app.put("/admin/aadhaar/:userId/approve", adminMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /admin/aadhaar/:userId/reject
 app.put("/admin/aadhaar/:userId/reject", adminMiddleware, async (req, res) => {
   try {
     const reason = req.body.reason || "Does not meet requirements";
@@ -197,6 +184,69 @@ app.put("/admin/aadhaar/:userId/reject", adminMiddleware, async (req, res) => {
       aadhaarRejectionReason: reason,
     });
     res.json({ message: "Aadhaar rejected" });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — USER MODERATION
+// ═════════════════════════════════════════════════════════════════════════════
+
+// GET /admin/reported-users
+app.get("/admin/reported-users", adminMiddleware, async (req, res) => {
+  try {
+    const users = await User.find({ reportCount: { $gt: 0 } })
+      .select("name email area reportCount warnings banned createdAt")
+      .sort({ reportCount: -1 });
+    res.json(users);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /admin/users/:id/warn
+app.put("/admin/users/:id/warn", adminMiddleware, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { warnings: 1 } },
+      { new: true }
+    );
+    res.json({ message: "Warning issued", warnings: user.warnings });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /admin/users/:id/ban
+app.put("/admin/users/:id/ban", adminMiddleware, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.params.id, { banned: true });
+    res.json({ message: "User banned" });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — REPORTED POSTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+// GET /admin/reported-posts
+app.get("/admin/reported-posts", adminMiddleware, async (req, res) => {
+  try {
+    const posts = await Post.find({ reportCount: { $gt: 0 } })
+      .sort({ reportCount: -1 });
+    res.json(posts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /admin/posts/:id
+app.delete("/admin/posts/:id", adminMiddleware, async (req, res) => {
+  try {
+    await Post.findByIdAndDelete(req.params.id);
+    res.json({ message: "Post deleted by admin" });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /admin/posts/:id/dismiss-report  — clear report count
+app.put("/admin/posts/:id/dismiss-report", adminMiddleware, async (req, res) => {
+  try {
+    await Post.findByIdAndUpdate(req.params.id, { reportCount: 0, reportedBy: [] });
+    res.json({ message: "Report dismissed" });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -212,7 +262,6 @@ app.post("/posts", authMiddleware,
         title, content, location, type,
         latitude, longitude, userId, userName,
         anonymous, alert, severity, area,
-        // geotagged fields from camera capture
         geotagged, captureLat, captureLng, captureAddress,
       } = req.body;
 
@@ -263,7 +312,6 @@ app.post("/posts", authMiddleware,
         geo:           { type: "Point", coordinates: [targetLng, targetLat] },
         image:         req.files?.image?.[0]?.path || null,
         video:         req.files?.video?.[0]?.path || null,
-        // Geotagged camera data
         geotagged:      isGeotagged,
         captureLat:     captureLat  ? parseFloat(captureLat)  : null,
         captureLng:     captureLng  ? parseFloat(captureLng)  : null,
@@ -340,15 +388,17 @@ app.put("/posts/:id/like", authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// FIX 5: include userId in comment push
 app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
   try {
-    const { text, userName } = req.body;
+    const { text, userName, userId } = req.body;
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
-    post.comments.push({ text, userName });
+    // FIX: now includes userId so comment author is clickable
+    post.comments.push({ text, userName, userId: userId || null });
     await post.save();
-    if (post.userId && post.userId.toString() !== req.body.userId) {
-      const notif = await Notification.create({ recipientId: post.userId, senderId: req.body.userId || null, senderName: userName || "Someone", type: "comment", postId: post._id, postTitle: post.title });
+    if (post.userId && post.userId.toString() !== userId) {
+      const notif = await Notification.create({ recipientId: post.userId, senderId: userId || null, senderName: userName || "Someone", type: "comment", postId: post._id, postTitle: post.title });
       io.to(`user:${post.userId}`).emit("newNotification", notif);
     }
     res.json(post);
@@ -371,6 +421,30 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
       io.to(`user:${post.userId}`).emit("newNotification", notif);
     }
     res.json(post);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Report a post ─────────────────────────────────────────────────────────────
+app.post("/posts/:id/report", authMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: "Post not found" });
+    // Prevent duplicate reports from same user
+    if (post.reportedBy?.includes(userId)) {
+      return res.status(400).json({ message: "You already reported this post" });
+    }
+    post.reportCount = (post.reportCount || 0) + 1;
+    if (!post.reportedBy) post.reportedBy = [];
+    post.reportedBy.push(userId);
+    await post.save();
+
+    // Also increment reportCount on the post author's user record
+    if (post.userId) {
+      await User.findByIdAndUpdate(post.userId, { $inc: { reportCount: 1 } });
+    }
+
+    res.json({ message: "Post reported" });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -472,6 +546,8 @@ app.get("/profile/:userId", async (req, res) => {
         bio:           user.bio || "",
         verified:      user.verified,
         aadhaarStatus: user.aadhaarStatus,
+        warnings:      user.warnings,
+        banned:        user.banned,
         createdAt:     user.createdAt,
       },
       posts, trustScore, postCount: posts.length,

@@ -553,7 +553,7 @@ export default function Dashboard() {
           </button>
 
           {/* AREA HEADING */}
-          <div className="mb-4 text-sm text-white/60 font-semibold uppercase tracking-widest">
+          <div className="mb-4 text-sm text-black/60 font-semibold uppercase tracking-widest">
             {showBookmarks
               ? "📌 Saved Posts"
               : `📍 ${
@@ -799,7 +799,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </h2>
-              <p className="text-sm text-gray-300 mt-1">
+              <p className="text-sm text-gray-500 mt-1">
                 📍 {user?.area || "No area selected"}
               </p>
 

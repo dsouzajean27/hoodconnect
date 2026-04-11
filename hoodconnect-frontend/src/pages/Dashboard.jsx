@@ -592,7 +592,7 @@ export default function Dashboard() {
                       {post.verified && (
                         <span
                           title="Verified community member"
-                          className="ml-1 text-blue-500 text-xs bg-blue-100 px-1.5 py-0.5 rounded-full font-bold"
+                          className="ml-1 text-gray-500 text-xs bg-blue-100 px-1.5 py-0.5 rounded-full font-bold"
                         >
                           ✓ Verified
                         </span>
@@ -793,7 +793,7 @@ export default function Dashboard() {
                 {user?.verified && (
                   <span
                     title="Verified community member"
-                    className="text-blue-400 text-sm bg-blue-900/50 px-1.5 py-0.5 rounded-full"
+                    className="text-gray-400 text-sm bg-blue-900/50 px-1.5 py-0.5 rounded-full"
                   >
                     ✓
                   </span>
@@ -849,7 +849,7 @@ export default function Dashboard() {
                   <span className="flex-1 text-sm truncate">
                     {entry.name}
                     {entry.verified && (
-                      <span className="ml-1 text-blue-400 text-xs">✓</span>
+                      <span className="ml-1 text-gray-400 text-xs">✓</span>
                     )}
                   </span>
                   <span className="text-xs text-white/60">

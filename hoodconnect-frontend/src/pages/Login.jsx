@@ -67,7 +67,7 @@ export default function Login() {
           </button>
         </div>
 
-        <p className="text-center text-sm text-blue-100 mt-6">
+        <p className="text-center text-sm text-grey-500 mt-6">
           New here?{" "}
           <span
             onClick={() => navigate("/register")}

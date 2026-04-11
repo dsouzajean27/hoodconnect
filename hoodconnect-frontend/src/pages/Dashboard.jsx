@@ -397,30 +397,23 @@ export default function Dashboard() {
     return "🥉";
   }
 
-//----Colour-------------------------------------------------------------------
-  function getCategoryColor(type, active = false) {
-  const colors = {
-    emergency: active
-      ? "bg-red-100 text-red-600"
-      : "text-red-500",
-    event: active
-      ? "bg-yellow-100 text-yellow-600"
-      : "text-yellow-500",
-    casual: active
-      ? "bg-blue-100 text-blue-600"
-      : "text-blue-500",
-    promotional: active
-      ? "bg-green-100 text-green-600"
-      : "text-green-500",
-    all: active
-      ? "bg-purple-100 text-purple-600"
-      : "text-purple-500",
-  };
+// 🎯 FINAL UI SYSTEM (DO NOT CHANGE AGAIN)
 
-  return colors[type] || "";
-}
+const UI = {
+  card: "bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition",
+  input: "w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500",
+  buttonPrimary: "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl transition",
+  buttonSecondary: "bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl transition",
+};
 
-const tagStyles = {
+const TEXT = {
+  title: "text-lg font-semibold text-gray-800",
+  subtitle: "text-sm text-gray-500",
+  body: "text-sm text-gray-700",
+  small: "text-xs text-gray-500",
+};
+
+const TAG = {
   emergency: "bg-red-100 text-red-600",
   event: "bg-yellow-100 text-yellow-600",
   casual: "bg-blue-100 text-blue-600",
@@ -442,7 +435,7 @@ const tagStyles = {
 
       <div className="flex-1 max-w-xl px-6">
         <input
-          className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-primary"
+          className={UI.input}
           placeholder="Search posts..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -466,8 +459,8 @@ const tagStyles = {
                   );
                 }
               }}
-              className="relative text-2xl"
-            >
+              className={UI.buttonPrimary}>
+            
               🔔
               {notifications.filter((n) => !n.read).length > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -517,7 +510,7 @@ const tagStyles = {
 
           <button
             onClick={handleLogout}
-            className="bg-danger text-white px-4 py-2 rounded-xl"
+            className={UI.buttonPrimary}
           >
             Logout
           </button>
@@ -541,7 +534,7 @@ const tagStyles = {
               setNearMe(!nearMe);
               getLocation();
             }}
-            className={`w-full p-2 mb-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 ${
+            className={`UI.buttonPrimary ${
               nearMe ? "bg-white/20" : ""
             }`}
           >
@@ -551,7 +544,7 @@ const tagStyles = {
           {/* Bookmarks toggle */}
           <button
             onClick={() => setShowBookmarks(!showBookmarks)}
-            className={`w-full p-2 mb-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 ${
+            className={`UI.buttonSecondary ${
               showBookmarks ? "bg-white/20" : ""
             }`}
           >
@@ -569,7 +562,7 @@ const tagStyles = {
               <button
                 key={f.key}
                 onClick={() => setType(f.key)}
-                className={`flex items-center gap-3 w-full p-2 rounded-lg transition ${
+                className={`UI.buttonPrimary ${
                   type === f.key
                     ? "bg-primary/10 text-primary"
                     : "hover:bg-gray-100"
@@ -586,7 +579,7 @@ const tagStyles = {
         <div className="flex-1 max-w-2xl mx-auto p-6 relative z-10">
           <button
             onClick={() => setShowModal(true)}
-            className="w-full mb-6 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-xl"
+            className={UI.buttonSecondary}
           >
             ➕ Create Post
           </button>
@@ -604,7 +597,7 @@ const tagStyles = {
 
           {/* POST CARDS */}
           {filteredPosts.length === 0 && (
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition mb-6">
+            <div className={UI.card}>
               {showBookmarks
                 ? "No saved posts yet. Bookmark posts to see them here."
                 : "No posts in this area yet. Be the first!"}
@@ -612,231 +605,240 @@ const tagStyles = {
           )}
 
           {filteredPosts.map((post) => (
-            <div
-              key={post._id}
-              className="bg-white text-black rounded-2xl mb-6 overflow-hidden shadow-sm hover:shadow-md transition"
+  <div key={post._id} className={`${UI.card} mb-6 overflow-hidden`}>
+
+    {/* HEADER */}
+    <div className="p-4">
+      <div className="flex justify-between items-start">
+        <div>
+          <p
+            className={`${TEXT.subtitle} cursor-pointer hover:text-purple-600 flex items-center gap-1`}
+            onClick={() =>
+              post.userId && navigate(`/profile/${post.userId}`)
+            }
+          >
+            👤 {post.userName || "Anonymous"}
+
+            {post.verified && (
+              <span className="ml-1 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-semibold">
+                ✓ Verified
+              </span>
+            )}
+          </p>
+
+          <p className={TEXT.small}>
+            {new Date(post.createdAt).toLocaleDateString()} •{" "}
+            {new Date(post.createdAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        </div>
+
+        {/* Bookmark */}
+        <button
+          onClick={() => handleBookmark(post._id)}
+          className={UI.buttonSecondary}
+        >
+          {bookmarks.has(post._id) ? (
+            <BookmarkCheck size={18} />
+          ) : (
+            <Bookmark size={18} />
+          )}
+        </button>
+      </div>
+
+      {/* LOCATION */}
+      <p className={`${TEXT.body} mt-1`}>
+        📍 {post.targetAddress || "Not specified"}
+      </p>
+
+      <p className={TEXT.small}>
+        Posted from: {post.originAddress}
+      </p>
+
+      {/* DISTANCE */}
+      {latitude && (post.targetLat || post.originLat) && (
+        <p className={TEXT.small}>
+          📍{" "}
+          {getDistance(
+            Number(latitude),
+            Number(longitude),
+            Number(post.targetLat || post.originLat),
+            Number(post.targetLng || post.originLng)
+          ).toFixed(1)}{" "}
+          km away
+        </p>
+      )}
+
+      {/* TAG + TIME */}
+      <div className="flex items-center gap-2 mt-2">
+        <span
+          className={`text-xs px-2 py-1 rounded-full font-semibold ${TAG[post.type]}`}
+        >
+          {post.type}
+        </span>
+
+        <span className={TEXT.small}>
+          ⏳ {getTimeLeft(post.createdAt)}
+        </span>
+      </div>
+    </div>
+
+    {/* EMERGENCY */}
+    {post.type === "emergency" && post.alert && (
+      <div className="bg-red-500 text-white p-2 text-center font-bold">
+        🚨 EMERGENCY ALERT
+      </div>
+    )}
+
+    {/* CONTENT */}
+    <div className="px-4 pb-2">
+      <h3 className={TEXT.title}>{post.title}</h3>
+      <p className={`${TEXT.body} mt-1`}>{post.content}</p>
+    </div>
+
+    {/* MEDIA */}
+    {post.image && (
+      <img
+        src={post.image}
+        className="w-full"
+        onError={(e) => (e.target.style.display = "none")}
+        alt="post"
+      />
+    )}
+
+    {post.video && (
+      <video src={post.video} controls className="w-full" />
+    )}
+
+    {/* TRUST BAR */}
+    {(post.trustUpvotes?.length > 0 ||
+      post.trustDownvotes?.length > 0) && (
+      <div className="px-4 pt-2">
+        <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+          <span>Community Trust</span>
+          <span className="ml-auto">
+            {post.trustUpvotes?.length || 0} /{" "}
+            {(post.trustUpvotes?.length || 0) +
+              (post.trustDownvotes?.length || 0)}{" "}
+            verified
+          </span>
+        </div>
+
+        <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-green-500 rounded-full transition-all"
+            style={{
+              width: `${
+                ((post.trustUpvotes?.length || 0) /
+                  Math.max(
+                    1,
+                    (post.trustUpvotes?.length || 0) +
+                      (post.trustDownvotes?.length || 0)
+                  )) *
+                100
+              }%`,
+            }}
+          />
+        </div>
+      </div>
+    )}
+
+    {/* ACTIONS */}
+    <div className="flex flex-wrap gap-3 px-4 py-3 text-sm">
+      <button
+        onClick={() => handleTrust(post._id, "up")}
+        className={UI.buttonSecondary}
+      >
+        👍 {post.trustUpvotes?.length || 0}
+      </button>
+
+      <button
+        onClick={() => handleTrust(post._id, "down")}
+        className={UI.buttonSecondary}
+      >
+        ❌ {post.trustDownvotes?.length || 0}
+      </button>
+
+      <button
+        onClick={() => handleLike(post._id)}
+        className={UI.buttonSecondary}
+      >
+        ❤️ {post.likes?.length || 0}
+      </button>
+
+      <button className={UI.buttonSecondary}>
+        💬 {post.comments?.length || 0}
+      </button>
+
+      {post.userId === user?.id && (
+        <>
+          <button
+            onClick={() => handleEdit(post._id)}
+            className={UI.buttonSecondary}
+          >
+            ✏️ Edit
+          </button>
+
+          <button
+            onClick={() => handleDelete(post._id)}
+            className="bg-red-500 text-white px-3 py-1 rounded-lg"
+          >
+            🗑️ Delete
+          </button>
+        </>
+      )}
+    </div>
+
+    {/* COMMENTS */}
+    <div className="px-4 pb-4">
+      <input
+        className={UI.input}
+        placeholder="Write a comment..."
+        value={commentText[post._id] || ""}
+        onChange={(e) =>
+          setCommentText({
+            ...commentText,
+            [post._id]: e.target.value,
+          })
+        }
+      />
+
+      <button
+        onClick={() => handleComment(post._id)}
+        className={`${UI.buttonPrimary} mt-2`}
+      >
+        Post
+      </button>
+
+      <div className="mt-3">
+        {post.comments?.map((c, i) => (
+          <p key={i} className={TEXT.body}>
+            <b
+              className="cursor-pointer hover:text-purple-600"
+              onClick={() =>
+                c.userId && navigate(`/profile/${c.userId}`)
+              }
             >
-              {/* POST HEADER */}
-              <div className="p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p
-                      className="font-semibold text-sm text-gray-700 cursor-pointer hover:text-purple-600 flex items-center gap-1"
-                      onClick={() =>
-                        post.userId && navigate(`/profile/${post.userId}`)
-                      }
-                    >
-                      👤 {post.userName || "Anonymous"}
-                      {/* Verified badge - shown if author is verified */}
-                      {post.verified && (
-                        <span
-                          title="Verified community member"
-                          className="ml-1 text-gray-500 text-xs bg-blue-100 px-1.5 py-0.5 rounded-full font-bold"
-                        >
-                          ✓ Verified
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(post.createdAt).toLocaleDateString()} •{" "}
-                      {new Date(post.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                  </div>
-                  {/* Bookmark button */}
-                  <button
-                    onClick={() => handleBookmark(post._id)}
-                    className="text-gray-400 hover:text-purple-600 transition"
-                    title={
-                      bookmarks.has(post._id)
-                        ? "Remove bookmark"
-                        : "Save post"
-                    }
-                  >
-                    {bookmarks.has(post._id) ? (
-                      <BookmarkCheck size={20} className="text-purple-600" />
-                    ) : (
-                      <Bookmark size={20} />
-                    )}
-                  </button>
-                </div>
+              {c.userName}:
+            </b>{" "}
+            {c.text}
+          </p>
+        ))}
+      </div>
+    </div>
 
-                <p className="font-semibold mt-1">
-                  📍 {post.targetAddress || "Not specified"}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Posted from: {post.originAddress}
-                </p>
-                {latitude && (post.targetLat || post.originLat) && (
-                  <p className="text-xs text-gray-500">
-                    📍{" "}
-                    {getDistance(
-                      Number(latitude),
-                      Number(longitude),
-                      Number(post.targetLat || post.originLat),
-                      Number(post.targetLng || post.originLng)
-                    ).toFixed(1)}{" "}
-                    km away
-                  </p>
-                )}
-                <span
-                  className={`inline-block text-xs px-2 py-1 rounded-full font-semibold ${
-                    post.type === "emergency"
-                      ? "bg-red-100 text-red-600"
-                      : post.type === "event"
-                      ? "bg-yellow-100 text-yellow-600"
-                      : post.type === "promotional"
-                      ? "bg-green-100 text-green-600"
-                      : "bg-blue-100 text-blue-600"
-                  }`}
-                >
-                  {post.type}
-                </span>
-                <p className="text-xs text-gray-500">
-                  ⏳ {getTimeLeft(post.createdAt)}
-                </p>
-              </div>
+  </div>
+))}    
 
-              {post.type === "emergency" && post.alert && (
-                <div className="bg-red-500 text-white p-2 text-center font-bold">
-                  🚨 EMERGENCY ALERT
-                </div>
-              )}
-
-              <h3 className="text-base font-semibold text-primary">
-                {post.title}
-              </h3>
-
-              <p className="text-sm text-gray-700">
-                {post.content}
-              </p>
-
-              {post.image && (
-                <img
-                  src={post.image}
-                  className="w-full"
-                  onError={(e) => (e.target.style.display = "none")}
-                  alt="post"
-                />
-              )}
-              {post.video && (
-                <video src={post.video} controls className="w-full" />
-              )}
-
-              {/* TRUST BAR — visual breakdown */}
-              {(post.trustUpvotes?.length > 0 ||
-                post.trustDownvotes?.length > 0) && (
-                <div className="px-4 pt-2">
-                  <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                    <span>Community Trust</span>
-                    <span className="ml-auto">
-                      {post.trustUpvotes?.length || 0} /{" "}
-                      {(post.trustUpvotes?.length || 0) +
-                        (post.trustDownvotes?.length || 0)}{" "}
-                      verified
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{
-                        width: `${
-                          ((post.trustUpvotes?.length || 0) /
-                            Math.max(
-                              1,
-                              (post.trustUpvotes?.length || 0) +
-                                (post.trustDownvotes?.length || 0)
-                            )) *
-                          100
-                        }%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* ACTIONS */}
-              <div className="flex justify-between px-4 py-3 text-sm">
-                <div className="flex gap-4 flex-wrap">
-                  <button
-                    onClick={() => handleTrust(post._id, "up")}
-                    className="hover:scale-110 transition"
-                  >
-                    👍 {post.trustUpvotes?.length || 0}
-                  </button>
-                  <button
-                    onClick={() => handleTrust(post._id, "down")}
-                    className="hover:scale-110 transition"
-                  >
-                    ❌ {post.trustDownvotes?.length || 0}
-                  </button>
-                  <button
-                    onClick={() => handleLike(post._id)}
-                    className="hover:scale-110 transition"
-                  >
-                    ❤️ {post.likes?.length || 0}
-                  </button>
-                  <button>💬 {post.comments?.length || 0}</button>
-                  {/* Only show edit/delete for own posts */}
-                  {post.userId === user?.id && (
-                    <>
-                      <button onClick={() => handleEdit(post._id)}>
-                        ✏️ Edit
-                      </button>
-                      <button onClick={() => handleDelete(post._id)}>
-                        🗑️ Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* COMMENTS */}
-              <div className="px-4 pb-4">
-                <input
-                  className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Write a comment..."
-                  value={commentText[post._id] || ""}
-                  onChange={(e) =>
-                    setCommentText({
-                      ...commentText,
-                      [post._id]: e.target.value,
-                    })
-                  }
-                />
-                <button
-                  onClick={() => handleComment(post._id)}
-                  className="bg-blue-500 text-white px-3 py-1 rounded"
-                >
-                  Post
-                </button>
-                <div className="mt-3">
-                  {post.comments?.map((c, i) => (
-                    <p key={i} className="text-sm text-gray-700">
-                      <b
-                        className="cursor-pointer hover:text-purple-600"
-                        onClick={() =>
-                          c.userId && navigate(`/profile/${c.userId}`)
-                        }
-                      >
-                        {c.userName}:
-                      </b>{" "}
-                      {c.text}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
 
         {/* RIGHT SIDEBAR */}
         <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
 
           {/* USER CARD */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition">
+          <div className={UI.card}>
             <div className="text-center">
               <div
                 className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl cursor-pointer hover:bg-purple-400 transition"
@@ -885,7 +887,7 @@ const tagStyles = {
           </div>
 
           {/* LEADERBOARD CARD */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition">
+          <div className={UI.card}>
             <h3 className="font-bold flex items-center gap-2 mb-3">
               <Trophy size={16} className="text-yellow-400" />
               Hood Leaderboard
@@ -924,7 +926,7 @@ const tagStyles = {
           <div className="bg-white text-black p-6 rounded-2xl w-[420px] shadow-2xl relative">
             <button
               onClick={() => setShowModal(false)}
-              className="absolute top-3 right-4 text-white/60 text-xl"
+              className={UI.buttonPrimary}
             >
               ✖
             </button>
@@ -934,7 +936,7 @@ const tagStyles = {
             </h2>
 
             <input
-              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
+              className={UI.input}
               placeholder="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -946,7 +948,7 @@ const tagStyles = {
               onChange={(e) => setContent(e.target.value)}
             />
             <input
-              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
+              className={UI.input}
               value={location}
               onChange={(e) => setLocation(e.target.value)}
             />
@@ -1035,7 +1037,7 @@ const tagStyles = {
                 handlePost();
                 setShowModal(false);
               }}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-xl mt-3"
+              className={UI.buttonSecondary}
             >
               🚀 Post
             </button>
@@ -1069,13 +1071,13 @@ const tagStyles = {
           <div className="bg-white text-black p-6 rounded-2xl w-[350px] text-center">
             <h2 className="text-xl font-bold mb-4">📍 Enter Your Area</h2>
             <input
-              className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary"
+              className={UI.input}
               placeholder="e.g. Andheri, Borivali, Majiwada"
               value={tempArea}
               onChange={(e) => setTempArea(e.target.value)}
             />
             <button
-              className="bg-blue-500 text-white px-4 py-2 rounded"
+              className={UI.buttonPrimary}
               onClick={() => {
                 if (!tempArea) return;
                 const formatted = tempArea.toLowerCase().replace(/\s/g, "-");

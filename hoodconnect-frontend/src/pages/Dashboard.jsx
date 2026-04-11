@@ -8,79 +8,22 @@ import {
   User,
   Megaphone,
   Menu,
+  Bookmark,
+  BookmarkCheck,
+  Trophy,
 } from "lucide-react";
 import { io } from "socket.io-client";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 
-// ── Leaflet default icon fix ──────────────────────────────────────────────────
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
-});
-
-// ── Map icons (one declaration, used everywhere) ──────────────────────────────
-// FIX: removed duplicate MAP_ICONS object. One icons map, used on the map markers.
-const icons = {
-  emergency: new L.Icon({
-    iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-    iconSize: [32, 32],
-  }),
-  casual: new L.Icon({
-    iconUrl: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-    iconSize: [32, 32],
-  }),
-  event: new L.Icon({
-    iconUrl: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
-    iconSize: [32, 32],
-  }),
-  promotional: new L.Icon({
-    iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
-    iconSize: [32, 32],
-  }),
-};
-
-// ── Alert sound (one declaration at module level, not inside component) ───────
-// FIX: was declared twice inside the component body — caused a runtime error.
+// ── Alert sound ───────────────────────────────────────────────────────────────
 const alertSound = new Audio(
   "https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3"
 );
 
 const BASE_URL = "https://hoodconnect-backend.onrender.com";
 
-// ── Axios helper: attaches JWT token to every request ────────────────────────
-// FIX: backend routes are now protected. This ensures the token is always sent.
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-// ── MapClickHandler (defined outside Dashboard to avoid re-render issues) ─────
-function MapClickHandler({ setSelectedPosition, setLatitude, setLongitude, setLocation, setShowModal }) {
-  useMapEvents({
-    async click(e) {
-      const { lat, lng } = e.latlng;
-      setSelectedPosition([lat, lng]);
-      setLatitude(lat);
-      setLongitude(lng);
-
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
-        );
-        const data = await res.json();
-        setLocation(data.display_name || "Selected location");
-      } catch (err) {
-        console.log("Reverse geocode error:", err);
-      }
-
-      setShowModal(true);
-    },
-  });
-  return null;
 }
 
 export default function Dashboard() {
@@ -113,8 +56,16 @@ export default function Dashboard() {
   const [severity, setSeverity] = useState("low");
 
   const [emergencyPost, setEmergencyPost] = useState(null);
-  const [selectedPosition, setSelectedPosition] = useState(null);
   const [commentText, setCommentText] = useState({});
+
+  // Bookmarks: set of post IDs the current user has bookmarked
+  const [bookmarks, setBookmarks] = useState(new Set());
+
+  // Leaderboard for current area
+  const [leaderboard, setLeaderboard] = useState([]);
+
+  // Show bookmarked posts only toggle
+  const [showBookmarks, setShowBookmarks] = useState(false);
 
   const seenAlertsRef = useRef(new Set());
   const socketRef = useRef(null);
@@ -137,7 +88,7 @@ export default function Dashboard() {
     { key: "promotional", label: "Promo", icon: Megaphone },
   ];
 
-  // ── Fetch posts for current area ───────────────────────────────────────────
+  // ── Fetch posts for current area ──────────────────────────────────────────
   const fetchPosts = async () => {
     try {
       const area = user?.area || "unknown";
@@ -148,49 +99,76 @@ export default function Dashboard() {
     }
   };
 
-  // ── Socket setup ───────────────────────────────────────────────────────────
-  // FIX: merged the two socket useEffects into one.
-  // Previously both fired on mount — causing the room to be joined twice.
-  // Now: connect once, join the user's area, re-join when user.area changes.
-  useEffect(() => {
-  socketRef.current = io(BASE_URL, { transports: ["websocket"] });
-
-  const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
-  socketRef.current.emit("joinRoom", { area });
-
-  // ADD THESE TWO:
-  if (user?.id) {
-    socketRef.current.emit("joinUserRoom", { userId: user.id });
-  }
-  socketRef.current.on("newNotification", (notif) => {
-    setNotifications(prev => [notif, ...prev]);
-  });
-
-  socketRef.current.on("newPost", (post) => {
-    setPosts((prev) => [post, ...prev]);
-  });
-
-  return () => {
-    socketRef.current.disconnect();
+  // ── Fetch leaderboard for current area ───────────────────────────────────
+  const fetchLeaderboard = async (area) => {
+    try {
+      const res = await axios.get(`${BASE_URL}/leaderboard/${area || "unknown"}`);
+      setLeaderboard(res.data);
+    } catch (err) {
+      console.log("fetchLeaderboard error:", err);
+    }
   };
-}, []);
 
-  // Re-join when user switches area (from the dropdown)
+  // ── Fetch bookmarks ───────────────────────────────────────────────────────
+  const fetchBookmarks = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/bookmarks`, {
+        headers: authHeaders(),
+      });
+      setBookmarks(new Set(res.data.map((p) => p._id)));
+    } catch (err) {
+      console.log("fetchBookmarks error:", err);
+    }
+  };
+
+  // ── Socket setup ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    socketRef.current = io(BASE_URL, { transports: ["websocket"] });
+
+    const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
+    socketRef.current.emit("joinRoom", { area });
+
+    if (user?.id) {
+      socketRef.current.emit("joinUserRoom", { userId: user.id });
+    }
+
+    socketRef.current.on("newNotification", (notif) => {
+      setNotifications((prev) => [notif, ...prev]);
+    });
+
+    socketRef.current.on("newPost", (post) => {
+      setPosts((prev) => [post, ...prev]);
+    });
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
+
+  // Re-join room when area changes
   useEffect(() => {
     if (!user?.area || !socketRef.current) return;
     const area = user.area.toLowerCase().replace(/\s/g, "-");
     socketRef.current.emit("joinRoom", { area });
   }, [user?.area]);
 
-  // ── Fetch posts on mount + when area changes ───────────────────────────────
-  // FIX: fetchPosts was defined but never called on mount. Posts only appeared
-  // after a new socket event — existing posts were invisible on load.
+  // ── Fetch on mount + area change ──────────────────────────────────────────
   useEffect(() => {
     fetchPosts();
+    fetchLeaderboard(user?.area);
   }, [user?.area]);
 
+  // ── Fetch bookmarks on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    if (user?.id) fetchBookmarks();
+  }, [user?.id]);
 
-  // ── Show location modal if user has no area ───────────────────────────────
+  // ── Fetch areas ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    axios.get(`${BASE_URL}/areas`).then((res) => setAreas(res.data));
+  }, []);
+
+  // ── Show location modal if no area ────────────────────────────────────────
   useEffect(() => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
     if (!storedUser?.area || storedUser.area === "unknown") {
@@ -201,7 +179,8 @@ export default function Dashboard() {
   // ── Emergency alert popup ─────────────────────────────────────────────────
   useEffect(() => {
     posts.forEach((post) => {
-      const isRecent = new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
+      const isRecent =
+        new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
       if (
         post.type === "emergency" &&
         post.alert &&
@@ -209,15 +188,11 @@ export default function Dashboard() {
         !seenAlertsRef.current.has(post._id)
       ) {
         setEmergencyPost(post);
-        alertSound.play().catch(() => {}); // ignore autoplay policy errors
+        alertSound.play().catch(() => {});
         seenAlertsRef.current.add(post._id);
       }
     });
   }, [posts]);
-
-  useEffect(() => {
-    axios.get(`${BASE_URL}/areas`).then(res => setAreas(res.data));
-  }, []);
 
   // ── Geolocation ───────────────────────────────────────────────────────────
   const getLocation = () => {
@@ -239,7 +214,9 @@ export default function Dashboard() {
     const dLon = toRad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
@@ -254,6 +231,10 @@ export default function Dashboard() {
   // ── Filtered posts ────────────────────────────────────────────────────────
   const filteredPosts = (posts || []).filter((post) => {
     if (!post) return false;
+
+    // Bookmarks filter
+    if (showBookmarks && !bookmarks.has(post._id)) return false;
+
     const matchesType = type === "all" || post.type === type;
     const matchesSearch =
       search === "" ||
@@ -266,7 +247,13 @@ export default function Dashboard() {
       const postLat = Number(post.targetLat || post.originLat);
       const postLng = Number(post.targetLng || post.originLng);
       if (!latitude || !longitude || !postLat || !postLng) return false;
-      matchesNearMe = getDistance(Number(latitude), Number(longitude), postLat, postLng) <= 5;
+      matchesNearMe =
+        getDistance(
+          Number(latitude),
+          Number(longitude),
+          postLat,
+          postLng
+        ) <= 5;
     }
 
     return matchesType && matchesSearch && matchesNearMe;
@@ -282,8 +269,6 @@ export default function Dashboard() {
       formData.append("latitude", latitude || "");
       formData.append("longitude", longitude || "");
       formData.append("type", type === "all" ? "casual" : type);
-      // FIX: area now correctly sends the user's room key, NOT the location address string.
-      // Previously: formData.append("area", location.toLowerCase()) — sent the address as room key.
       formData.append("area", user?.area || "unknown");
       formData.append("userId", user?.id);
       formData.append("userName", user?.name || "Unknown");
@@ -306,7 +291,6 @@ export default function Dashboard() {
       setImagePreview(null);
       setAnonymous(false);
       setAlertUsers(false);
-      setSelectedPosition(null);
       fetchPosts();
     } catch (err) {
       console.log("handlePost error:", err);
@@ -328,7 +312,6 @@ export default function Dashboard() {
     const newText = prompt("Edit your post content:");
     if (!newText) return;
     try {
-      // FIX: route now exists on backend (was missing before)
       await axios.put(
         `${BASE_URL}/posts/${postId}`,
         { content: newText },
@@ -358,7 +341,11 @@ export default function Dashboard() {
       if (!commentText[postId]) return;
       await axios.post(
         `${BASE_URL}/posts/${postId}/comment`,
-        { text: commentText[postId], userName: user?.name || "Anonymous", userId: user?.id }, 
+        {
+          text: commentText[postId],
+          userName: user?.name || "Anonymous",
+          userId: user?.id,
+        },
         { headers: authHeaders() }
       );
       setCommentText({ ...commentText, [postId]: "" });
@@ -368,11 +355,11 @@ export default function Dashboard() {
     }
   };
 
-  const handleTrust = async (postId, type) => {
+  const handleTrust = async (postId, trustType) => {
     try {
       await axios.put(
         `${BASE_URL}/posts/${postId}/trust`,
-        { userId: user?.id, type },
+        { userId: user?.id, type: trustType },
         { headers: authHeaders() }
       );
       fetchPosts();
@@ -381,13 +368,33 @@ export default function Dashboard() {
     }
   };
 
-  // FIX: logout now clears localStorage. Previously it just navigated away,
-  // leaving the user data behind — anyone could navigate back to /dashboard.
+  // ── Bookmark toggle ───────────────────────────────────────────────────────
+  const handleBookmark = async (postId) => {
+    try {
+      const res = await axios.put(
+        `${BASE_URL}/posts/${postId}/bookmark`,
+        {},
+        { headers: authHeaders() }
+      );
+      setBookmarks(new Set(res.data.bookmarks.map((id) => id.toString())));
+    } catch (err) {
+      console.log("handleBookmark error:", err);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("user");
     localStorage.removeItem("token");
     navigate("/");
   };
+
+  // ── Tier helper ───────────────────────────────────────────────────────────
+  function getTierEmoji(score) {
+    if (score >= 150) return "💎";
+    if (score >= 50) return "🥇";
+    if (score >= 10) return "🥈";
+    return "🥉";
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -395,61 +402,82 @@ export default function Dashboard() {
 
       {/* HEADER */}
       <div className="flex justify-between items-center p-6 bg-white/5 border-b border-white/10">
-  <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
+        <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
 
-  <div className="flex items-center gap-4">
-    {/* BELL */}
-    <div className="relative">
-      <button
-        onClick={() => {
-          setShowNotifications(!showNotifications);
-          if (!showNotifications && user?.id) {
-            axios.put(`${BASE_URL}/notifications/${user.id}/read`, {}, {
-              headers: authHeaders()
-            });
-            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-          }
-        }}
-        className="relative text-2xl"
-      >
-        🔔
-        {notifications.filter(n => !n.read).length > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-            {notifications.filter(n => !n.read).length}
-          </span>
-        )}
-      </button>
+        <div className="flex items-center gap-4">
+          {/* BELL */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowNotifications(!showNotifications);
+                if (!showNotifications && user?.id) {
+                  axios.put(
+                    `${BASE_URL}/notifications/${user.id}/read`,
+                    {},
+                    { headers: authHeaders() }
+                  );
+                  setNotifications((prev) =>
+                    prev.map((n) => ({ ...n, read: true }))
+                  );
+                }
+              }}
+              className="relative text-2xl"
+            >
+              🔔
+              {notifications.filter((n) => !n.read).length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {notifications.filter((n) => !n.read).length}
+                </span>
+              )}
+            </button>
 
-      {showNotifications && (
-        <div className="absolute right-0 top-10 w-80 bg-white text-black rounded-2xl shadow-2xl z-50 overflow-hidden">
-          <div className="p-3 border-b font-bold text-gray-700">Notifications</div>
-          {notifications.length === 0 ? (
-            <p className="p-4 text-sm text-gray-500 text-center">No notifications yet</p>
-          ) : (
-            notifications.slice(0, 10).map((n, i) => (
-              <div key={i} className={`p-3 border-b text-sm ${!n.read ? "bg-blue-50" : ""}`}>
-                <p>
-                  <b>{n.senderName}</b>{" "}
-                  {n.type === "like" && "liked your post"}
-                  {n.type === "comment" && "commented on your post"}
-                  {n.type === "trust" && "voted on your post"}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">📝 {n.postTitle}</p>
-                <p className="text-xs text-gray-400">
-                  {new Date(n.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </p>
+            {showNotifications && (
+              <div className="absolute right-0 top-10 w-80 bg-white text-black rounded-2xl shadow-2xl z-50 overflow-hidden">
+                <div className="p-3 border-b font-bold text-gray-700">
+                  Notifications
+                </div>
+                {notifications.length === 0 ? (
+                  <p className="p-4 text-sm text-gray-500 text-center">
+                    No notifications yet
+                  </p>
+                ) : (
+                  notifications.slice(0, 10).map((n, i) => (
+                    <div
+                      key={i}
+                      className={`p-3 border-b text-sm ${
+                        !n.read ? "bg-blue-50" : ""
+                      }`}
+                    >
+                      <p>
+                        <b>{n.senderName}</b>{" "}
+                        {n.type === "like" && "liked your post"}
+                        {n.type === "comment" && "commented on your post"}
+                        {n.type === "trust" && "voted on your post"}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        📝 {n.postTitle}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(n.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+            )}
+          </div>
 
-    <button onClick={handleLogout} className="bg-red-500 px-4 py-2 rounded-lg">
-      Logout
-    </button>
-  </div>
-</div>
+          <button
+            onClick={handleLogout}
+            className="bg-red-500 px-4 py-2 rounded-lg"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
 
       {/* BODY */}
       <div className="flex flex-1 gap-6 px-6">
@@ -465,10 +493,30 @@ export default function Dashboard() {
           </button>
 
           <button
-            onClick={() => { setNearMe(!nearMe); getLocation(); }}
-            className="w-full p-2 mb-2 rounded-lg hover:bg-white/10"
+            onClick={() => {
+              setNearMe(!nearMe);
+              getLocation();
+            }}
+            className={`w-full p-2 mb-2 rounded-lg hover:bg-white/10 flex items-center gap-2 ${
+              nearMe ? "bg-white/20" : ""
+            }`}
           >
-            📍 Near Me
+            📍 {!collapsed && "Near Me"}
+          </button>
+
+          {/* Bookmarks toggle */}
+          <button
+            onClick={() => setShowBookmarks(!showBookmarks)}
+            className={`w-full p-2 mb-2 rounded-lg hover:bg-white/10 flex items-center gap-2 ${
+              showBookmarks ? "bg-white/20" : ""
+            }`}
+          >
+            {showBookmarks ? (
+              <BookmarkCheck size={18} />
+            ) : (
+              <Bookmark size={18} />
+            )}
+            {!collapsed && <span>Saved Posts</span>}
           </button>
 
           {filters.map((f) => {
@@ -504,89 +552,80 @@ export default function Dashboard() {
             ➕ Create Post
           </button>
 
-          {/* MAP */}
-          <div className="mb-6 rounded-2xl overflow-hidden relative z-10">
-            <MapContainer
-              center={[19.076, 72.8777]}
-              zoom={13}
-              style={{ height: "300px", width: "100%", zIndex: 0 }}
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-              <MapClickHandler
-                setSelectedPosition={setSelectedPosition}
-                setLatitude={setLatitude}
-                setLongitude={setLongitude}
-                setLocation={setLocation}
-                setShowModal={setShowModal}
-              />
-
-              {filteredPosts.map((post) => {
-                const lat = Number(post.targetLat || post.originLat);
-                const lng = Number(post.targetLng || post.originLng);
-                const isRecent =
-                  new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
-                if (!isRecent || !lat || !lng || isNaN(lat) || isNaN(lng))
-                  return null;
-
-                return (
-                  <Marker
-                    key={post._id}
-                    position={[lat, lng]}
-                    icon={icons[post.type] || icons.casual}
-                  >
-                    <Popup>
-                      <div className="text-black w-48">
-                        <h3 className="font-bold text-purple-600">{post.title}</h3>
-                        <p className="text-xs mt-1">{post.content}</p>
-                        <p className="text-xs mt-2">
-                          📍 {post.targetAddress || post.originAddress}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          👤 {post.userName || "Anonymous"}
-                        </p>
-                        {post.type === "emergency" && (
-                          <p className="text-red-600 text-xs font-bold mt-2">
-                            🚨 Emergency
-                          </p>
-                        )}
-                      </div>
-                    </Popup>
-                  </Marker>
-                );
-              })}
-
-              {selectedPosition && (
-                <Marker position={selectedPosition}>
-                  <Popup>📍 Selected Location</Popup>
-                </Marker>
-              )}
-            </MapContainer>
+          {/* AREA HEADING */}
+          <div className="mb-4 text-sm text-white/60 font-semibold uppercase tracking-widest">
+            {showBookmarks
+              ? "📌 Saved Posts"
+              : `📍 ${
+                  user?.area
+                    ?.replace(/-/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase()) || "Your Hood"
+                }`}
           </div>
 
           {/* POST CARDS */}
+          {filteredPosts.length === 0 && (
+            <div className="text-center text-white/40 py-16">
+              {showBookmarks
+                ? "No saved posts yet. Bookmark posts to see them here."
+                : "No posts in this area yet. Be the first!"}
+            </div>
+          )}
+
           {filteredPosts.map((post) => (
             <div
               key={post._id}
               className="bg-white text-black rounded-2xl mb-6 overflow-hidden"
             >
-              {/* HEADER */}
+              {/* POST HEADER */}
               <div className="p-4">
-                <p
-                  className="font-semibold text-sm text-gray-700 cursor-pointer hover:text-purple-600"
-                  onClick={() => post.userId && navigate(`/profile/${post.userId}`)}
-                >
-                  👤 {post.userName || "Anonymous"}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {new Date(post.createdAt).toLocaleDateString()} •{" "}
-                  {new Date(post.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-                <p className="font-semibold">
-                  📍 Located at: {post.targetAddress || "Not specified"}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p
+                      className="font-semibold text-sm text-gray-700 cursor-pointer hover:text-purple-600 flex items-center gap-1"
+                      onClick={() =>
+                        post.userId && navigate(`/profile/${post.userId}`)
+                      }
+                    >
+                      👤 {post.userName || "Anonymous"}
+                      {/* Verified badge - shown if author is verified */}
+                      {post.verified && (
+                        <span
+                          title="Verified community member"
+                          className="ml-1 text-blue-500 text-xs bg-blue-100 px-1.5 py-0.5 rounded-full font-bold"
+                        >
+                          ✓ Verified
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(post.createdAt).toLocaleDateString()} •{" "}
+                      {new Date(post.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  {/* Bookmark button */}
+                  <button
+                    onClick={() => handleBookmark(post._id)}
+                    className="text-gray-400 hover:text-purple-600 transition"
+                    title={
+                      bookmarks.has(post._id)
+                        ? "Remove bookmark"
+                        : "Save post"
+                    }
+                  >
+                    {bookmarks.has(post._id) ? (
+                      <BookmarkCheck size={20} className="text-purple-600" />
+                    ) : (
+                      <Bookmark size={20} />
+                    )}
+                  </button>
+                </div>
+
+                <p className="font-semibold mt-1">
+                  📍 {post.targetAddress || "Not specified"}
                 </p>
                 <p className="text-xs text-gray-500">
                   Posted from: {post.originAddress}
@@ -604,7 +643,9 @@ export default function Dashboard() {
                   </p>
                 )}
                 <p className="text-xs text-gray-500">{post.type}</p>
-                <p className="text-xs text-gray-500">⏳ {getTimeLeft(post.createdAt)}</p>
+                <p className="text-xs text-gray-500">
+                  ⏳ {getTimeLeft(post.createdAt)}
+                </p>
               </div>
 
               {post.type === "emergency" && post.alert && (
@@ -614,10 +655,8 @@ export default function Dashboard() {
               )}
 
               <h3 className="px-4 font-bold text-purple-600">{post.title}</h3>
-              <p className="px-4">{post.content}</p>
+              <p className="px-4 pb-2">{post.content}</p>
 
-              {/* FIX: image/video src is now the full Cloudinary URL stored in post.image,
-                  not a relative /uploads/ path which broke after Render restarts. */}
               {post.image && (
                 <img
                   src={post.image}
@@ -626,23 +665,75 @@ export default function Dashboard() {
                   alt="post"
                 />
               )}
-              {post.video && <video src={post.video} controls className="w-full" />}
+              {post.video && (
+                <video src={post.video} controls className="w-full" />
+              )}
+
+              {/* TRUST BAR — visual breakdown */}
+              {(post.trustUpvotes?.length > 0 ||
+                post.trustDownvotes?.length > 0) && (
+                <div className="px-4 pt-2">
+                  <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                    <span>Community Trust</span>
+                    <span className="ml-auto">
+                      {post.trustUpvotes?.length || 0} /{" "}
+                      {(post.trustUpvotes?.length || 0) +
+                        (post.trustDownvotes?.length || 0)}{" "}
+                      verified
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full transition-all"
+                      style={{
+                        width: `${
+                          ((post.trustUpvotes?.length || 0) /
+                            Math.max(
+                              1,
+                              (post.trustUpvotes?.length || 0) +
+                                (post.trustDownvotes?.length || 0)
+                            )) *
+                          100
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* ACTIONS */}
               <div className="flex justify-between px-4 py-3 text-sm">
                 <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => handleTrust(post._id, "up")}>
+                  <button
+                    onClick={() => handleTrust(post._id, "up")}
+                    className="hover:scale-110 transition"
+                  >
                     👍 {post.trustUpvotes?.length || 0}
                   </button>
-                  <button onClick={() => handleTrust(post._id, "down")}>
+                  <button
+                    onClick={() => handleTrust(post._id, "down")}
+                    className="hover:scale-110 transition"
+                  >
                     ❌ {post.trustDownvotes?.length || 0}
                   </button>
-                  <button onClick={() => handleLike(post._id)}>
+                  <button
+                    onClick={() => handleLike(post._id)}
+                    className="hover:scale-110 transition"
+                  >
                     ❤️ {post.likes?.length || 0}
                   </button>
                   <button>💬 {post.comments?.length || 0}</button>
-                  <button onClick={() => handleEdit(post._id)}>✏️ Edit</button>
-                  <button onClick={() => handleDelete(post._id)}>🗑️ Delete</button>
+                  {/* Only show edit/delete for own posts */}
+                  {post.userId === user?.id && (
+                    <>
+                      <button onClick={() => handleEdit(post._id)}>
+                        ✏️ Edit
+                      </button>
+                      <button onClick={() => handleDelete(post._id)}>
+                        🗑️ Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -653,7 +744,10 @@ export default function Dashboard() {
                   placeholder="Write a comment..."
                   value={commentText[post._id] || ""}
                   onChange={(e) =>
-                    setCommentText({ ...commentText, [post._id]: e.target.value })
+                    setCommentText({
+                      ...commentText,
+                      [post._id]: e.target.value,
+                    })
                   }
                 />
                 <button
@@ -667,10 +761,13 @@ export default function Dashboard() {
                     <p key={i} className="text-sm text-gray-700">
                       <b
                         className="cursor-pointer hover:text-purple-600"
-                        onClick={() => c.userId && navigate(`/profile/${c.userId}`)}
+                        onClick={() =>
+                          c.userId && navigate(`/profile/${c.userId}`)
+                        }
                       >
                         {c.userName}:
-                      </b> {c.text}
+                      </b>{" "}
+                      {c.text}
                     </p>
                   ))}
                 </div>
@@ -680,36 +777,87 @@ export default function Dashboard() {
         </div>
 
         {/* RIGHT SIDEBAR */}
-        <div className="w-72 bg-white/10 p-5 rounded-2xl h-fit sticky top-6">
-          <div className="text-center">
-            <div className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl">
-              {user?.name?.charAt(0) || "U"}
-            </div>
-            <h2 className="mt-3">{user?.name || "Unknown User"}</h2>
-            <p className="text-sm text-gray-300 mt-1">
-              📍 {user?.area || "No area selected"}
-            </p>
+        <div className="w-72 space-y-4 sticky top-6 h-fit">
 
-            {/* AREA SWITCH */}
-            <select
-              className="mt-3 w-full p-2 rounded text-black"
-              value={user?.area || ""}
-              onChange={(e) => {
-                const newArea = e.target.value;
-                const updatedUser = { ...user, area: newArea };
-                localStorage.setItem("user", JSON.stringify(updatedUser));
-                setUser(updatedUser);
-                if (socketRef.current) {
-                  socketRef.current.emit("joinRoom", { area: newArea });
-                }
-              }}
-            >
-              {areas.map((a) => (
-                <option key={a._id} value={a.name}>
-                  {a.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
-                </option>
-              ))}
-            </select>
+          {/* USER CARD */}
+          <div className="bg-white/10 p-5 rounded-2xl">
+            <div className="text-center">
+              <div
+                className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl cursor-pointer hover:bg-purple-400 transition"
+                onClick={() => user?.id && navigate(`/profile/${user.id}`)}
+              >
+                {user?.name?.charAt(0) || "U"}
+              </div>
+              <h2 className="mt-3 flex items-center justify-center gap-1">
+                {user?.name || "Unknown User"}
+                {user?.verified && (
+                  <span
+                    title="Verified community member"
+                    className="text-blue-400 text-sm bg-blue-900/50 px-1.5 py-0.5 rounded-full"
+                  >
+                    ✓
+                  </span>
+                )}
+              </h2>
+              <p className="text-sm text-gray-300 mt-1">
+                📍 {user?.area || "No area selected"}
+              </p>
+
+              {/* AREA SWITCH */}
+              <select
+                className="mt-3 w-full p-2 rounded text-black"
+                value={user?.area || ""}
+                onChange={(e) => {
+                  const newArea = e.target.value;
+                  const updatedUser = { ...user, area: newArea };
+                  localStorage.setItem("user", JSON.stringify(updatedUser));
+                  setUser(updatedUser);
+                  if (socketRef.current) {
+                    socketRef.current.emit("joinRoom", { area: newArea });
+                  }
+                }}
+              >
+                {areas.map((a) => (
+                  <option key={a._id} value={a.name}>
+                    {a.name
+                      .replace(/-/g, " ")
+                      .replace(/\b\w/g, (c) => c.toUpperCase())}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* LEADERBOARD CARD */}
+          <div className="bg-white/10 p-5 rounded-2xl">
+            <h3 className="font-bold flex items-center gap-2 mb-3">
+              <Trophy size={16} className="text-yellow-400" />
+              Hood Leaderboard
+            </h3>
+            {leaderboard.length === 0 ? (
+              <p className="text-sm text-white/40 text-center">No data yet</p>
+            ) : (
+              leaderboard.map((entry, i) => (
+                <div
+                  key={entry.userId}
+                  className="flex items-center gap-2 py-2 border-b border-white/10 last:border-0 cursor-pointer hover:bg-white/5 rounded px-1"
+                  onClick={() => navigate(`/profile/${entry.userId}`)}
+                >
+                  <span className="text-lg">
+                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                  </span>
+                  <span className="flex-1 text-sm truncate">
+                    {entry.name}
+                    {entry.verified && (
+                      <span className="ml-1 text-blue-400 text-xs">✓</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-white/60">
+                    {entry.score} pts
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -725,7 +873,9 @@ export default function Dashboard() {
               ✖
             </button>
 
-            <h2 className="text-xl font-bold mb-4 text-center">✨ Create New Post</h2>
+            <h2 className="text-xl font-bold mb-4 text-center">
+              ✨ Create New Post
+            </h2>
 
             <input
               className="w-full p-3 mb-3 rounded-xl bg-white/10 border border-white/20"
@@ -818,11 +968,18 @@ export default function Dashboard() {
             </div>
 
             {imagePreview && (
-              <img src={imagePreview} className="w-full rounded-xl mt-3" alt="preview" />
+              <img
+                src={imagePreview}
+                className="w-full rounded-xl mt-3"
+                alt="preview"
+              />
             )}
 
             <button
-              onClick={() => { handlePost(); setShowModal(false); }}
+              onClick={() => {
+                handlePost();
+                setShowModal(false);
+              }}
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl mt-3"
             >
               🚀 Post
@@ -867,14 +1024,18 @@ export default function Dashboard() {
               onClick={() => {
                 if (!tempArea) return;
                 const formatted = tempArea.toLowerCase().replace(/\s/g, "-");
-                
-                // Save to DB so it appears in everyone's dropdown
-                axios.post(`${BASE_URL}/areas`, { name: formatted }, { headers: authHeaders() });
-                
+
+                axios.post(
+                  `${BASE_URL}/areas`,
+                  { name: formatted },
+                  { headers: authHeaders() }
+                );
+
                 const updatedUser = { ...user, area: formatted };
                 localStorage.setItem("user", JSON.stringify(updatedUser));
                 setUser(updatedUser);
-                if (socketRef.current) socketRef.current.emit("joinRoom", { area: formatted });
+                if (socketRef.current)
+                  socketRef.current.emit("joinRoom", { area: formatted });
                 setShowLocationModal(false);
               }}
             >

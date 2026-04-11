@@ -11,9 +11,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 // ================= CLOUDINARY SETUP =================
-// FIX: replaced local disk storage (ephemeral on Render) with Cloudinary.
-// Run: npm install cloudinary multer-storage-cloudinary
-// Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET to Render env vars.
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -56,11 +53,9 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 // ================= AUTH MIDDLEWARE =================
-// FIX: added JWT auth middleware. Protects edit, delete, like, trust, comment routes.
-// Add JWT_SECRET to your Render env vars (any long random string).
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1]; // "Bearer <token>"
+  const token = authHeader && authHeader.split(" ")[1];
   if (!token) return res.status(401).json({ message: "No token provided" });
 
   try {
@@ -72,13 +67,33 @@ function authMiddleware(req, res, next) {
   }
 }
 
+// ================= AUTO-VERIFY HELPER =================
+// Automatically grants verified badge when trust score hits 50+
+async function checkAndGrantVerified(userId) {
+  try {
+    const User = require("./models/user");
+    const Post = require("./models/post");
+    const user = await User.findById(userId);
+    if (!user || user.verified) return;
+
+    const posts = await Post.find({ userId, anonymous: false });
+    const trustScore = posts.reduce((total, post) => {
+      return total + post.trustUpvotes.length - post.trustDownvotes.length;
+    }, 0);
+
+    if (trustScore >= 50) {
+      await User.findByIdAndUpdate(userId, { verified: true });
+    }
+  } catch (err) {
+    console.log("checkAndGrantVerified error:", err.message);
+  }
+}
+
 // ================= SOCKET LOGIC =================
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // FIX: only one join handler — area is always the normalized room key.
   socket.on("joinRoom", ({ area }) => {
-    // Leave any previously joined rooms (except the socket's own room)
     for (const room of socket.rooms) {
       if (room !== socket.id) socket.leave(room);
     }
@@ -107,7 +122,6 @@ app.use(
 );
 app.use(express.json());
 
-// TEST ROUTE
 app.get("/", (req, res) => {
   res.send("HoodConnect Backend is running 🚀");
 });
@@ -117,8 +131,6 @@ const User = require("./models/user");
 const Post = require("./models/post");
 const Area = require("./models/area");
 const Notification = require("./models/notification");
-//GET /profile/:userId 
-
 
 // ================= DB CONNECTION =================
 mongoose
@@ -133,7 +145,6 @@ mongoose
 app.post("/register", async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(req.body.password, 10);
-    // FIX: now correctly maps to the "area" field in the user schema.
     const area = (req.body.area || req.body.location || "unknown")
       .toLowerCase()
       .replace(/\s/g, "-");
@@ -146,7 +157,7 @@ app.post("/register", async (req, res) => {
     });
 
     await newUser.save();
-    await saveArea(area); 
+    await saveArea(area);
     res.json({ message: "User registered" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -163,8 +174,6 @@ app.post("/login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Wrong password" });
 
-    // FIX: now returns a JWT token alongside the user object.
-    // Frontend stores this token and sends it as Authorization header.
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -177,6 +186,7 @@ app.post("/login", async (req, res) => {
         name: user.name,
         email: user.email,
         area: user.area,
+        verified: user.verified,
       },
     });
   } catch (err) {
@@ -216,7 +226,6 @@ app.post(
         return res.status(400).json({ message: "Missing location" });
       }
 
-      // GEOCODING
       let originAddress = "Unknown";
       let targetAddress = "Unknown";
       let targetLat = null;
@@ -245,21 +254,16 @@ app.post(
         }
       }
 
-      // Fall back to origin if no target geocoded
       if (!targetLat || !targetLng) {
         targetLat = parseFloat(latitude);
         targetLng = parseFloat(longitude);
         targetAddress = originAddress;
       }
 
-      // FIX: area now comes from req.body.area (sent as user?.area from frontend),
-      // NOT from location.toLowerCase() which was sending the address string as the room key.
       const normalizedArea = (area || "unknown")
         .toLowerCase()
         .replace(/\s/g, "-");
 
-      // FIX: image/video are now Cloudinary URLs (req.files[x][0].path),
-      // not local filenames. Cloudinary's multer storage puts the full URL in .path.
       const post = new Post({
         title,
         content,
@@ -285,9 +289,8 @@ app.post(
       });
 
       await post.save();
-      await saveArea(normalizedArea); 
+      await saveArea(normalizedArea);
 
-      // Emit to the correct socket room
       io.to(normalizedArea).emit("newPost", post);
 
       res.json(post);
@@ -332,14 +335,11 @@ app.get("/posts/nearby", async (req, res) => {
   }
 });
 
-// FIX: added the missing PUT /posts/:id edit route.
-// Was called from handleEdit in Dashboard.jsx but didn't exist — caused silent failures.
 app.put("/posts/:id", authMiddleware, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Only the post author can edit
     if (post.userId?.toString() !== req.userId) {
       return res.status(403).json({ message: "Not authorized" });
     }
@@ -357,7 +357,6 @@ app.delete("/posts/:id", authMiddleware, async (req, res) => {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Only the post author can delete
     if (post.userId?.toString() !== req.userId) {
       return res.status(403).json({ message: "Not authorized" });
     }
@@ -402,14 +401,13 @@ app.put("/posts/:id/like", authMiddleware, async (req, res) => {
 
 app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
   try {
-
     const { text, userName } = req.body;
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
     post.comments.push({ text, userName });
     await post.save();
-    // After post.save(), add:
+
     if (post.userId && post.userId.toString() !== req.body.userId) {
       const notif = await Notification.create({
         recipientId: post.userId,
@@ -433,7 +431,6 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Remove from both, then add to the chosen one (toggle logic)
     post.trustUpvotes = post.trustUpvotes.filter(
       (id) => id.toString() !== userId
     );
@@ -445,7 +442,12 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
     else post.trustDownvotes.push(userId);
 
     await post.save();
-    // After post.save(), add:
+
+    // Auto-grant verified badge if threshold reached
+    if (post.userId) {
+      await checkAndGrantVerified(post.userId);
+    }
+
     if (post.userId && post.userId.toString() !== userId) {
       const notif = await Notification.create({
         recipientId: post.userId,
@@ -463,6 +465,41 @@ app.put("/posts/:id/trust", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= BOOKMARK ROUTES =================
+// Toggle bookmark on a post
+app.put("/posts/:id/bookmark", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const postId = req.params.id;
+    const alreadyBookmarked = user.bookmarks.some(
+      (id) => id.toString() === postId
+    );
+
+    user.bookmarks = alreadyBookmarked
+      ? user.bookmarks.filter((id) => id.toString() !== postId)
+      : [...user.bookmarks, postId];
+
+    await user.save();
+    res.json({ bookmarks: user.bookmarks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get bookmarked posts for logged-in user
+app.get("/bookmarks", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).populate("bookmarks");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json(user.bookmarks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= AREAS =================
 app.post("/areas", authMiddleware, async (req, res) => {
   try {
     const name = req.body.name?.toLowerCase().replace(/\s/g, "-");
@@ -477,9 +514,7 @@ app.post("/areas", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-//==============area=====================
 
-// Get all areas for the dropdown
 app.get("/areas", async (req, res) => {
   try {
     const areas = await Area.find().sort({ name: 1 });
@@ -489,7 +524,6 @@ app.get("/areas", async (req, res) => {
   }
 });
 
-// Save area if it doesn't exist (called internally)
 async function saveArea(name) {
   try {
     await Area.findOneAndUpdate(
@@ -502,8 +536,51 @@ async function saveArea(name) {
   }
 }
 
-//==================notifs=============
-// Get notifications for a user
+// ================= LEADERBOARD =================
+// Returns top 5 users by trust score in a given area
+app.get("/leaderboard/:area", async (req, res) => {
+  try {
+    const area = req.params.area.toLowerCase().replace(/\s/g, "-");
+    const posts = await Post.find({ area, anonymous: false });
+
+    // Aggregate trust scores per userId
+    const scoreMap = {};
+    const nameMap = {};
+    const verifiedMap = {};
+
+    for (const post of posts) {
+      if (!post.userId) continue;
+      const uid = post.userId.toString();
+      if (!scoreMap[uid]) scoreMap[uid] = 0;
+      scoreMap[uid] += post.trustUpvotes.length - post.trustDownvotes.length;
+      nameMap[uid] = post.userName;
+    }
+
+    // Fetch verified status
+    const userIds = Object.keys(scoreMap);
+    const users = await User.find({ _id: { $in: userIds } }).select("verified name");
+    for (const u of users) {
+      verifiedMap[u._id.toString()] = u.verified;
+      nameMap[u._id.toString()] = u.name;
+    }
+
+    const leaderboard = userIds
+      .map((uid) => ({
+        userId: uid,
+        name: nameMap[uid] || "Unknown",
+        score: scoreMap[uid],
+        verified: verifiedMap[uid] || false,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    res.json(leaderboard);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= NOTIFICATIONS =================
 app.get("/notifications/:userId", authMiddleware, async (req, res) => {
   try {
     const notifications = await Notification.find({
@@ -515,7 +592,6 @@ app.get("/notifications/:userId", authMiddleware, async (req, res) => {
   }
 });
 
-// Mark all as read
 app.put("/notifications/:userId/read", authMiddleware, async (req, res) => {
   try {
     await Notification.updateMany(
@@ -528,18 +604,17 @@ app.put("/notifications/:userId/read", authMiddleware, async (req, res) => {
   }
 });
 
-//=================profile userid==================
+// ================= PROFILE =================
 app.get("/profile/:userId", async (req, res) => {
   try {
     const user = await User.findById(req.params.userId).select("-password");
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const posts = await Post.find({ 
+    const posts = await Post.find({
       userId: req.params.userId,
-      anonymous: false  // don't show anonymous posts on profile
+      anonymous: false
     }).sort({ createdAt: -1 });
 
-    // Calculate trust score across all posts
     const trustScore = posts.reduce((total, post) => {
       return total + post.trustUpvotes.length - post.trustDownvotes.length;
     }, 0);
@@ -549,6 +624,8 @@ app.get("/profile/:userId", async (req, res) => {
         id: user._id,
         name: user.name,
         area: user.area,
+        bio: user.bio || "",
+        verified: user.verified,
         createdAt: user.createdAt,
       },
       posts,
@@ -569,6 +646,20 @@ app.put("/users/:userId/area", authMiddleware, async (req, res) => {
     await User.findByIdAndUpdate(req.params.userId, { area });
     await saveArea(area);
     res.json({ message: "Area updated" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update bio
+app.put("/users/:userId/bio", authMiddleware, async (req, res) => {
+  try {
+    if (req.userId !== req.params.userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const bio = req.body.bio?.slice(0, 160) || "";
+    await User.findByIdAndUpdate(req.params.userId, { bio });
+    res.json({ message: "Bio updated" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

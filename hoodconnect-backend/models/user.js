@@ -16,6 +16,21 @@ const userSchema = new mongoose.Schema({
   },
   location: {
     type: String
+  },
+  area: {
+    type: String,
+    lowercase: true
+  },
+  // Verified badge: set manually by admin or auto via trust score threshold
+  verified: {
+    type: Boolean,
+    default: false
+  },
+  // Bookmarked post IDs
+  bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
+  bio: {
+    type: String,
+    default: ""
   }
 }, { timestamps: true });
 

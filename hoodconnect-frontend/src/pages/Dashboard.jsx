@@ -13,6 +13,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { io } from "socket.io-client";
+import logo from "../assets/logo.png";
 
 // ── Alert sound ───────────────────────────────────────────────────────────────
 const alertSound = new Audio(
@@ -424,8 +425,12 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center p-6 bg-white border-gray-200">
-        <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
+      <div className="flex items-center gap-3">
+        <img src={logo} alt="logo" className="w-9 h-9 object-contain hover:scale-105 transition" />
+        <h1 className="text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-sm hover:scale-105 transition">
+          HOODCONNECT
+        </h1>
+      </div>
 
         <input
             className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"

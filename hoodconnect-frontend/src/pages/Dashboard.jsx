@@ -396,6 +396,29 @@ export default function Dashboard() {
     return "🥉";
   }
 
+//----Colour-------------------------------------------------------------------
+  function getCategoryColor(type, active = false) {
+  const colors = {
+    emergency: active
+      ? "bg-red-100 text-red-600"
+      : "text-red-500",
+    event: active
+      ? "bg-yellow-100 text-yellow-600"
+      : "text-yellow-500",
+    casual: active
+      ? "bg-blue-100 text-blue-600"
+      : "text-blue-500",
+    promotional: active
+      ? "bg-green-100 text-green-600"
+      : "text-green-500",
+    all: active
+      ? "bg-purple-100 text-purple-600"
+      : "text-purple-500",
+  };
+
+  return colors[type] || "";
+}
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
@@ -403,6 +426,13 @@ export default function Dashboard() {
       {/* HEADER */}
       <div className="flex justify-between items-center p-6 bg-white border-gray-200">
         <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
+
+        <input
+            className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"
+            placeholder="Search posts..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
 
         <div className="flex items-center gap-4">
           {/* BELL */}
@@ -525,11 +555,13 @@ export default function Dashboard() {
               <button
                 key={f.key}
                 onClick={() => setType(f.key)}
-                className={`flex items-center gap-3 w-full p-2 rounded-lg hover:bg-gray-100 ${
-                  type === f.key ? "bg-white/20" : ""
+                className={`flex items-center gap-3 w-full p-2 rounded-lg transition ${
+                  type === f.key
+                    ? getCategoryColor(f.key, true)
+                    : "hover:bg-gray-100"
                 }`}
               >
-                <Icon size={18} />
+                <Icon size={18} className={getCategoryColor(f.key)} />
                 {!collapsed && <span>{f.label}</span>}
               </button>
             );
@@ -538,13 +570,6 @@ export default function Dashboard() {
 
         {/* CENTER */}
         <div className="flex-1 max-w-2xl mx-auto p-6 relative z-10">
-          <input
-            className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"
-            placeholder="Search posts..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-
           <button
             onClick={() => setShowModal(true)}
             className="w-full mb-6 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-xl"
@@ -642,7 +667,19 @@ export default function Dashboard() {
                     km away
                   </p>
                 )}
-                <p className="text-xs text-gray-500">{post.type}</p>
+                <span
+                  className={`inline-block text-xs px-2 py-1 rounded-full font-semibold ${
+                    post.type === "emergency"
+                      ? "bg-red-100 text-red-600"
+                      : post.type === "event"
+                      ? "bg-yellow-100 text-yellow-600"
+                      : post.type === "promotional"
+                      ? "bg-green-100 text-green-600"
+                      : "bg-blue-100 text-blue-600"
+                  }`}
+                >
+                  {post.type}
+                </span>
                 <p className="text-xs text-gray-500">
                   ⏳ {getTimeLeft(post.createdAt)}
                 </p>

@@ -53,6 +53,14 @@ const postSchema = new mongoose.Schema(
     video: String,
     alert: { type: Boolean, default: false },
 
+    // ── Geotagged media ────────────────────────────────────────────────────
+    // True when photo/video was captured via the in-app camera with GPS
+    geotagged:       { type: Boolean, default: false },
+    // Exact GPS at moment of capture (may differ from post's targetLat/Lng)
+    captureLat:      { type: Number, default: null },
+    captureLng:      { type: Number, default: null },
+    captureAddress:  { type: String, default: null },
+
     geo: {
       type: { type: String, enum: ["Point"], default: "Point" },
       coordinates: { type: [Number] },

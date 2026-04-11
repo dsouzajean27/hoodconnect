@@ -425,6 +425,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
 
       {/* HEADER */}
+    <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
       <div className="flex items-center gap-3">
         <img src={logo} alt="logo" className="w-9 h-9 object-contain hover:scale-105 transition" />
         <h1 className="text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-sm hover:scale-105 transition">
@@ -512,7 +513,7 @@ export default function Dashboard() {
             Logout
           </button>
         </div>
-      </div>
+    </div>
 
 
     {/* BODY */}

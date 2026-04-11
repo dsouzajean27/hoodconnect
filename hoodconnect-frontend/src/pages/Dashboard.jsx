@@ -430,7 +430,6 @@ export default function Dashboard() {
         <h1 className="text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-sm hover:scale-105 transition">
           HOODCONNECT
         </h1>
-      </div>
 
         <input
             className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"
@@ -438,6 +437,7 @@ export default function Dashboard() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+      </div>
 
         <div className="flex items-center gap-4">
           {/* BELL */}
@@ -514,8 +514,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* BODY */}
-      <div className="flex flex-1 gap-6 px-6">
+
+    {/* BODY */}
+    <div className="flex flex-1 gap-6 px-6">
 
         {/* LEFT SIDEBAR */}
         <div

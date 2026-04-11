@@ -84,14 +84,14 @@ export default function Profile() {
 
   if (loading)
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-white text-xl">
+      <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex items-center justify-center text-white text-xl">
         Loading...
       </div>
     );
 
   if (!data)
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-white text-xl">
+      <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex items-center justify-center text-white text-xl">
         User not found
       </div>
     );
@@ -117,7 +117,7 @@ export default function Profile() {
     : 100;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-gray-800 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] text-gray-800 p-6">
 
       {/* BACK */}
       <button

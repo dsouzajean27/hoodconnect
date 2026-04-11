@@ -398,7 +398,7 @@ export default function Dashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex flex-col text-gray-800">
+    <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
 
       {/* HEADER */}
       <div className="flex justify-between items-center p-6 bg-white border-gray-200">

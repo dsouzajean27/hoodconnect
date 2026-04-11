@@ -398,10 +398,10 @@ export default function Dashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-slate-900 flex flex-col text-white">
+    <div className="min-h-screen bg-[#f8fafc] flex flex-col text-gray-800">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center p-6 bg-white/5 border-b border-white/10">
+      <div className="flex justify-between items-center p-6 bg-white border-gray-200">
         <h1 className="text-3xl font-extrabold tracking-widest">HOODCONNECT</h1>
 
         <div className="flex items-center gap-4">
@@ -484,7 +484,7 @@ export default function Dashboard() {
 
         {/* LEFT SIDEBAR */}
         <div
-          className={`bg-white/10 relative z-20 backdrop-blur-xl border border-white/20 p-4 rounded-2xl h-fit sticky top-6 ${
+          className={`bg-white border border-gray-200 shadow-sm p-4 rounded-2xl h-fit sticky top-6 ${
             collapsed ? "w-20" : "w-64"
           }`}
         >
@@ -497,7 +497,7 @@ export default function Dashboard() {
               setNearMe(!nearMe);
               getLocation();
             }}
-            className={`w-full p-2 mb-2 rounded-lg hover:bg-white/10 flex items-center gap-2 ${
+            className={`w-full p-2 mb-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 ${
               nearMe ? "bg-white/20" : ""
             }`}
           >
@@ -507,7 +507,7 @@ export default function Dashboard() {
           {/* Bookmarks toggle */}
           <button
             onClick={() => setShowBookmarks(!showBookmarks)}
-            className={`w-full p-2 mb-2 rounded-lg hover:bg-white/10 flex items-center gap-2 ${
+            className={`w-full p-2 mb-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 ${
               showBookmarks ? "bg-white/20" : ""
             }`}
           >
@@ -525,7 +525,7 @@ export default function Dashboard() {
               <button
                 key={f.key}
                 onClick={() => setType(f.key)}
-                className={`flex items-center gap-3 w-full p-2 rounded-lg hover:bg-white/10 ${
+                className={`flex items-center gap-3 w-full p-2 rounded-lg hover:bg-gray-100 ${
                   type === f.key ? "bg-white/20" : ""
                 }`}
               >
@@ -539,7 +539,7 @@ export default function Dashboard() {
         {/* CENTER */}
         <div className="flex-1 max-w-2xl mx-auto p-6 relative z-10">
           <input
-            className="w-full p-3 mb-4 rounded-xl text-black"
+            className="w-full p-3 mb-4 rounded-xl border border-gray-200 bg-white"
             placeholder="Search posts..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -547,7 +547,7 @@ export default function Dashboard() {
 
           <button
             onClick={() => setShowModal(true)}
-            className="w-full mb-6 bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl"
+            className="w-full mb-6 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-xl"
           >
             ➕ Create Post
           </button>
@@ -575,7 +575,7 @@ export default function Dashboard() {
           {filteredPosts.map((post) => (
             <div
               key={post._id}
-              className="bg-white text-black rounded-2xl mb-6 overflow-hidden"
+              className="bg-white text-black rounded-2xl mb-6 overflow-hidden shadow-sm hover:shadow-md transition"
             >
               {/* POST HEADER */}
               <div className="p-4">
@@ -780,7 +780,7 @@ export default function Dashboard() {
         <div className="w-72 space-y-4 sticky top-6 h-fit">
 
           {/* USER CARD */}
-          <div className="bg-white/10 p-5 rounded-2xl">
+          <div className="bg-white border border-gray-200 shadow-sm p-5 rounded-2xl">
             <div className="text-center">
               <div
                 className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl cursor-pointer hover:bg-purple-400 transition"
@@ -829,7 +829,7 @@ export default function Dashboard() {
           </div>
 
           {/* LEADERBOARD CARD */}
-          <div className="bg-white/10 p-5 rounded-2xl">
+          <div className="bg-white border border-gray-200 shadow-sm p-5 rounded-2xl">
             <h3 className="font-bold flex items-center gap-2 mb-3">
               <Trophy size={16} className="text-yellow-400" />
               Hood Leaderboard
@@ -865,7 +865,7 @@ export default function Dashboard() {
       {/* CREATE POST MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50">
-          <div className="bg-gradient-to-br from-blue-900 via-purple-900 to-slate-800 p-6 rounded-2xl w-[420px] shadow-2xl relative">
+          <div className="bg-white text-black p-6 rounded-2xl w-[420px] shadow-2xl relative">
             <button
               onClick={() => setShowModal(false)}
               className="absolute top-3 right-4 text-white/60 text-xl"
@@ -878,19 +878,19 @@ export default function Dashboard() {
             </h2>
 
             <input
-              className="w-full p-3 mb-3 rounded-xl bg-white/10 border border-white/20"
+              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
               placeholder="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <textarea
-              className="w-full p-3 mb-3 rounded-xl bg-white/10 border border-white/20"
+              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
               placeholder="Content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
             />
             <input
-              className="w-full p-3 mb-3 rounded-xl bg-white/10 border border-white/20"
+              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
               placeholder="Location (where is this about?)"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
@@ -904,7 +904,7 @@ export default function Dashboard() {
             </button>
 
             <select
-              className="w-full p-2 mb-3 rounded-xl bg-white/10 border border-white/20"
+              className="w-full p-2 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
               value={type === "all" ? "casual" : type}
               onChange={(e) => setType(e.target.value)}
             >
@@ -915,7 +915,7 @@ export default function Dashboard() {
             </select>
 
             <select
-              className="w-full p-2 mb-3 rounded-xl bg-white/10 border border-white/20"
+              className="w-full p-2 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
               value={severity}
               onChange={(e) => setSeverity(e.target.value)}
             >
@@ -943,7 +943,7 @@ export default function Dashboard() {
             </div>
 
             <div className="flex gap-3 mb-3">
-              <label className="flex-1 bg-white/10 border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
+              <label className="flex-1 bg-white border border-gray-200 shadow-sm border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
                 📸 Choose Image
                 <input
                   type="file"
@@ -956,7 +956,7 @@ export default function Dashboard() {
                   }}
                 />
               </label>
-              <label className="flex-1 bg-white/10 border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
+              <label className="flex-1 bg-white border border-gray-200 shadow-sm border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
                 🎥 Choose Video
                 <input
                   type="file"
@@ -980,7 +980,7 @@ export default function Dashboard() {
                 handlePost();
                 setShowModal(false);
               }}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl mt-3"
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-xl mt-3"
             >
               🚀 Post
             </button>

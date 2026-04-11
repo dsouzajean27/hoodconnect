@@ -84,14 +84,14 @@ export default function Profile() {
 
   if (loading)
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-slate-900 flex items-center justify-center text-white text-xl">
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-white text-xl">
         Loading...
       </div>
     );
 
   if (!data)
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-slate-900 flex items-center justify-center text-white text-xl">
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-white text-xl">
         User not found
       </div>
     );
@@ -117,7 +117,7 @@ export default function Profile() {
     : 100;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-slate-900 text-white p-6">
+    <div className="min-h-screen bg-[#f8fafc] text-gray-800 p-6">
 
       {/* BACK */}
       <button
@@ -130,7 +130,7 @@ export default function Profile() {
       <div className="max-w-2xl mx-auto">
 
         {/* PROFILE CARD */}
-        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 mb-6 text-center">
+        <div className="bg-white border border-gray-200 shadow-sm border rounded-3xl p-8 mb-6 text-center">
 
           {/* AVATAR */}
           <div className="w-24 h-24 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-4xl mb-4">
@@ -288,7 +288,7 @@ export default function Profile() {
         </div>
 
         {/* POSTS */}
-        <h2 className="text-xl font-bold mb-4">
+        <h2 className="text-xl font-bold mb-4 shadow-sm hover:shadow-md transition">
           {isOwnProfile ? "Your Posts" : `${data.user.name}'s Posts`}
         </h2>
 

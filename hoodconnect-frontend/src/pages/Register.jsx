@@ -29,8 +29,8 @@ export default function Register() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900">
-      <div className="bg-white/10 backdrop-blur-lg p-8 rounded-[2.5rem] shadow-2xl w-96 border border-white/20">
+    <div className="h-screen flex items-center justify-center bg-[#f8fafc]">
+      <div className="bg-white border border-gray-200 shadow-lg p-8 rounded-[2.5rem] shadow-2xl w-96">
         <h2 className="text-4xl font-black text-center mb-2 text-white tracking-tighter">
           JOIN THE HOOD
         </h2>
@@ -48,7 +48,7 @@ export default function Register() {
                   ? "Your area (e.g. Andheri)"
                   : field.charAt(0).toUpperCase() + field.slice(1)
               }
-              className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-purple-400 transition-all"
+              className="w-full bg-gray-100 text-black border border-white/10 p-4 rounded-2xl  outline-none focus:border-purple-400 transition-all"
               value={formData[field]}
               onChange={(e) =>
                 setFormData({ ...formData, [field]: e.target.value })
@@ -57,7 +57,7 @@ export default function Register() {
           ))}
           <button
             onClick={handleRegister}
-            className="w-full bg-purple-500 text-white font-black p-4 rounded-2xl hover:bg-purple-400 transition-all shadow-lg mt-2"
+            className="w-full bg-purple-600 text-white font-black p-4 rounded-2xl hover:bg-purple-700 transition-all shadow-lg mt-2"
           >
             Register Now
           </button>

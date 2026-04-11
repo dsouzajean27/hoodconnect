@@ -35,8 +35,8 @@ export default function Login() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-900">
-      <div className="bg-white/10 backdrop-blur-lg p-8 rounded-[2.5rem] shadow-2xl w-96 border border-white/20">
+    <div className="h-screen flex items-center justify-center bg-[#f8fafc]">
+      <div className="bg-white border border-gray-200 shadow-lg p-8 rounded-[2.5rem] shadow-2xl w-96 border">
         <h2 className="text-4xl font-black text-center mb-2 text-white tracking-tighter">
           HOODCONNECT
         </h2>
@@ -48,20 +48,20 @@ export default function Login() {
           <input
             type="email"
             placeholder="Email"
-            className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-blue-400 transition-all"
+            className="w-full bg-white border border-gray-200 shadow-lg border border-white/10 p-4 rounded-2xl  outline-none focus:border-blue-400 transition-all"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
           <input
             type="password"
             placeholder="Password"
-            className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-blue-400 transition-all"
+            className="w-full bg-white border border-gray-200 shadow-lg border border-white/10 p-4 rounded-2xl outline-none focus:border-blue-400 transition-all"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
           <button
             onClick={handleLogin}
-            className="w-full bg-white text-blue-900 font-black p-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
+            className="w-full bg-purple-600 text-white hover:bg-purple-700 font-black p-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
           >
             Login
           </button>

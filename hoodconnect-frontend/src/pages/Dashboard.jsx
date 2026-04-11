@@ -11,11 +11,16 @@ import {
   Bookmark,
   BookmarkCheck,
   Trophy,
+  MapPin,
+  Bell,
+  LogOut,
+  Plus,
+  ChevronRight,
+  X,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import logo from "../assets/logo.png";
 
-// ── Alert sound ───────────────────────────────────────────────────────────────
 const alertSound = new Audio(
   "https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3"
 );
@@ -26,6 +31,20 @@ function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+const TAG = {
+  emergency: "bg-red-100 text-red-600 border border-red-200",
+  event: "bg-amber-100 text-amber-700 border border-amber-200",
+  casual: "bg-blue-100 text-blue-600 border border-blue-200",
+  promotional: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+};
+
+const TYPE_ICON = {
+  emergency: "🚨",
+  event: "📅",
+  casual: "💬",
+  promotional: "📢",
+};
 
 export default function Dashboard() {
   const [posts, setPosts] = useState([]);
@@ -58,25 +77,18 @@ export default function Dashboard() {
 
   const [emergencyPost, setEmergencyPost] = useState(null);
   const [commentText, setCommentText] = useState({});
+  const [openComments, setOpenComments] = useState({});
 
-  // Bookmarks: set of post IDs the current user has bookmarked
   const [bookmarks, setBookmarks] = useState(new Set());
-
-  // Leaderboard for current area
   const [leaderboard, setLeaderboard] = useState([]);
-
-  // Show bookmarked posts only toggle
   const [showBookmarks, setShowBookmarks] = useState(false);
 
   const seenAlertsRef = useRef(new Set());
   const socketRef = useRef(null);
 
   const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("user"));
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(localStorage.getItem("user")); }
+    catch { return null; }
   });
 
   const navigate = useNavigate();
@@ -89,105 +101,56 @@ export default function Dashboard() {
     { key: "promotional", label: "Promo", icon: Megaphone },
   ];
 
-  // ── Fetch posts for current area ──────────────────────────────────────────
   const fetchPosts = async () => {
     try {
       const area = user?.area || "unknown";
       const res = await axios.get(`${BASE_URL}/posts?area=${area}`);
       setPosts(res.data);
-    } catch (err) {
-      console.log("fetchPosts error:", err);
-    }
+    } catch (err) { console.log("fetchPosts error:", err); }
   };
 
-  // ── Fetch leaderboard for current area ───────────────────────────────────
   const fetchLeaderboard = async (area) => {
     try {
       const res = await axios.get(`${BASE_URL}/leaderboard/${area || "unknown"}`);
       setLeaderboard(res.data);
-    } catch (err) {
-      console.log("fetchLeaderboard error:", err);
-    }
+    } catch (err) { console.log("fetchLeaderboard error:", err); }
   };
 
-  // ── Fetch bookmarks ───────────────────────────────────────────────────────
   const fetchBookmarks = async () => {
     try {
-      const res = await axios.get(`${BASE_URL}/bookmarks`, {
-        headers: authHeaders(),
-      });
+      const res = await axios.get(`${BASE_URL}/bookmarks`, { headers: authHeaders() });
       setBookmarks(new Set(res.data.map((p) => p._id)));
-    } catch (err) {
-      console.log("fetchBookmarks error:", err);
-    }
+    } catch (err) { console.log("fetchBookmarks error:", err); }
   };
 
-  // ── Socket setup ──────────────────────────────────────────────────────────
   useEffect(() => {
     socketRef.current = io(BASE_URL, { transports: ["websocket"] });
-
     const area = user?.area?.toLowerCase().replace(/\s/g, "-") || "unknown";
     socketRef.current.emit("joinRoom", { area });
-
-    if (user?.id) {
-      socketRef.current.emit("joinUserRoom", { userId: user.id });
-    }
-
-    socketRef.current.on("newNotification", (notif) => {
-      setNotifications((prev) => [notif, ...prev]);
-    });
-
-    socketRef.current.on("newPost", (post) => {
-      setPosts((prev) => [post, ...prev]);
-    });
-
-    return () => {
-      socketRef.current.disconnect();
-    };
+    if (user?.id) socketRef.current.emit("joinUserRoom", { userId: user.id });
+    socketRef.current.on("newNotification", (notif) => setNotifications((prev) => [notif, ...prev]));
+    socketRef.current.on("newPost", (post) => setPosts((prev) => [post, ...prev]));
+    return () => socketRef.current.disconnect();
   }, []);
 
-  // Re-join room when area changes
   useEffect(() => {
     if (!user?.area || !socketRef.current) return;
-    const area = user.area.toLowerCase().replace(/\s/g, "-");
-    socketRef.current.emit("joinRoom", { area });
+    socketRef.current.emit("joinRoom", { area: user.area.toLowerCase().replace(/\s/g, "-") });
   }, [user?.area]);
 
-  // ── Fetch on mount + area change ──────────────────────────────────────────
-  useEffect(() => {
-    fetchPosts();
-    fetchLeaderboard(user?.area);
-  }, [user?.area]);
+  useEffect(() => { fetchPosts(); fetchLeaderboard(user?.area); }, [user?.area]);
+  useEffect(() => { if (user?.id) fetchBookmarks(); }, [user?.id]);
+  useEffect(() => { axios.get(`${BASE_URL}/areas`).then((res) => setAreas(res.data)); }, []);
 
-  // ── Fetch bookmarks on mount ──────────────────────────────────────────────
-  useEffect(() => {
-    if (user?.id) fetchBookmarks();
-  }, [user?.id]);
-
-  // ── Fetch areas ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    axios.get(`${BASE_URL}/areas`).then((res) => setAreas(res.data));
-  }, []);
-
-  // ── Show location modal if no area ────────────────────────────────────────
   useEffect(() => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
-    if (!storedUser?.area || storedUser.area === "unknown") {
-      setShowLocationModal(true);
-    }
+    if (!storedUser?.area || storedUser.area === "unknown") setShowLocationModal(true);
   }, []);
 
-  // ── Emergency alert popup ─────────────────────────────────────────────────
   useEffect(() => {
     posts.forEach((post) => {
-      const isRecent =
-        new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
-      if (
-        post.type === "emergency" &&
-        post.alert &&
-        isRecent &&
-        !seenAlertsRef.current.has(post._id)
-      ) {
+      const isRecent = new Date() - new Date(post.createdAt) < 24 * 60 * 60 * 1000;
+      if (post.type === "emergency" && post.alert && isRecent && !seenAlertsRef.current.has(post._id)) {
         setEmergencyPost(post);
         alertSound.play().catch(() => {});
         seenAlertsRef.current.add(post._id);
@@ -195,29 +158,20 @@ export default function Dashboard() {
     });
   }, [posts]);
 
-  // ── Geolocation ───────────────────────────────────────────────────────────
   const getLocation = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLatitude(pos.coords.latitude);
-        setLongitude(pos.coords.longitude);
-      },
+      (pos) => { setLatitude(pos.coords.latitude); setLongitude(pos.coords.longitude); },
       (err) => console.log("Geolocation error:", err),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // ── Haversine distance ────────────────────────────────────────────────────
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const toRad = (v) => (v * Math.PI) / 180;
     const R = 6371;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) *
-        Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
@@ -226,41 +180,24 @@ export default function Dashboard() {
     if (diff <= 0) return "Expired";
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const mins = Math.floor((diff / (1000 * 60)) % 60);
-    return `${hours}h ${mins}m left`;
+    return `${hours}h ${mins}m`;
   };
 
-  // ── Filtered posts ────────────────────────────────────────────────────────
   const filteredPosts = (posts || []).filter((post) => {
     if (!post) return false;
-
-    // Bookmarks filter
     if (showBookmarks && !bookmarks.has(post._id)) return false;
-
     const matchesType = type === "all" || post.type === type;
-    const matchesSearch =
-      search === "" ||
-      ((post.title || "") + (post.content || "") + (post.targetAddress || ""))
-        .toLowerCase()
-        .includes(search.toLowerCase());
-
+    const matchesSearch = search === "" || ((post.title || "") + (post.content || "") + (post.targetAddress || "")).toLowerCase().includes(search.toLowerCase());
     let matchesNearMe = true;
     if (nearMe) {
       const postLat = Number(post.targetLat || post.originLat);
       const postLng = Number(post.targetLng || post.originLng);
       if (!latitude || !longitude || !postLat || !postLng) return false;
-      matchesNearMe =
-        getDistance(
-          Number(latitude),
-          Number(longitude),
-          postLat,
-          postLng
-        ) <= 5;
+      matchesNearMe = getDistance(Number(latitude), Number(longitude), postLat, postLng) <= 5;
     }
-
     return matchesType && matchesSearch && matchesNearMe;
   });
 
-  // ── Post handlers ─────────────────────────────────────────────────────────
   const handlePost = async () => {
     try {
       const formData = new FormData();
@@ -276,111 +213,59 @@ export default function Dashboard() {
       formData.append("anonymous", String(anonymous));
       formData.append("alert", String(alertUsers));
       formData.append("severity", severity);
-
       if (image) formData.append("image", image);
       if (video) formData.append("video", video);
-
-      await axios.post(`${BASE_URL}/posts`, formData, {
-        headers: { ...authHeaders() },
-      });
-
-      setTitle("");
-      setContent("");
-      setLocation("");
-      setImage(null);
-      setVideo(null);
-      setImagePreview(null);
-      setAnonymous(false);
-      setAlertUsers(false);
+      await axios.post(`${BASE_URL}/posts`, formData, { headers: { ...authHeaders() } });
+      setTitle(""); setContent(""); setLocation(""); setImage(null); setVideo(null);
+      setImagePreview(null); setAnonymous(false); setAlertUsers(false);
       fetchPosts();
-    } catch (err) {
-      console.log("handlePost error:", err);
-    }
+    } catch (err) { console.log("handlePost error:", err); }
   };
 
   const handleDelete = async (postId) => {
     try {
-      await axios.delete(`${BASE_URL}/posts/${postId}`, {
-        headers: authHeaders(),
-      });
+      await axios.delete(`${BASE_URL}/posts/${postId}`, { headers: authHeaders() });
       fetchPosts();
-    } catch (err) {
-      console.log("handleDelete error:", err);
-    }
+    } catch (err) { console.log("handleDelete error:", err); }
   };
 
   const handleEdit = async (postId) => {
     const newText = prompt("Edit your post content:");
     if (!newText) return;
     try {
-      await axios.put(
-        `${BASE_URL}/posts/${postId}`,
-        { content: newText },
-        { headers: authHeaders() }
-      );
+      await axios.put(`${BASE_URL}/posts/${postId}`, { content: newText }, { headers: authHeaders() });
       fetchPosts();
-    } catch (err) {
-      console.log("handleEdit error:", err);
-    }
+    } catch (err) { console.log("handleEdit error:", err); }
   };
 
   const handleLike = async (postId) => {
     try {
-      await axios.put(
-        `${BASE_URL}/posts/${postId}/like`,
-        { userId: user?.id },
-        { headers: authHeaders() }
-      );
+      await axios.put(`${BASE_URL}/posts/${postId}/like`, { userId: user?.id }, { headers: authHeaders() });
       fetchPosts();
-    } catch (err) {
-      console.log("handleLike error:", err);
-    }
+    } catch (err) { console.log("handleLike error:", err); }
   };
 
   const handleComment = async (postId) => {
     try {
       if (!commentText[postId]) return;
-      await axios.post(
-        `${BASE_URL}/posts/${postId}/comment`,
-        {
-          text: commentText[postId],
-          userName: user?.name || "Anonymous",
-          userId: user?.id,
-        },
-        { headers: authHeaders() }
-      );
+      await axios.post(`${BASE_URL}/posts/${postId}/comment`, { text: commentText[postId], userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() });
       setCommentText({ ...commentText, [postId]: "" });
       fetchPosts();
-    } catch (err) {
-      console.log("handleComment error:", err);
-    }
+    } catch (err) { console.log("handleComment error:", err); }
   };
 
   const handleTrust = async (postId, trustType) => {
     try {
-      await axios.put(
-        `${BASE_URL}/posts/${postId}/trust`,
-        { userId: user?.id, type: trustType },
-        { headers: authHeaders() }
-      );
+      await axios.put(`${BASE_URL}/posts/${postId}/trust`, { userId: user?.id, type: trustType }, { headers: authHeaders() });
       fetchPosts();
-    } catch (err) {
-      console.log("handleTrust error:", err);
-    }
+    } catch (err) { console.log("handleTrust error:", err); }
   };
 
-  // ── Bookmark toggle ───────────────────────────────────────────────────────
   const handleBookmark = async (postId) => {
     try {
-      const res = await axios.put(
-        `${BASE_URL}/posts/${postId}/bookmark`,
-        {},
-        { headers: authHeaders() }
-      );
+      const res = await axios.put(`${BASE_URL}/posts/${postId}/bookmark`, {}, { headers: authHeaders() });
       setBookmarks(new Set(res.data.bookmarks.map((id) => id.toString())));
-    } catch (err) {
-      console.log("handleBookmark error:", err);
-    }
+    } catch (err) { console.log("handleBookmark error:", err); }
   };
 
   const handleLogout = () => {
@@ -389,726 +274,564 @@ export default function Dashboard() {
     navigate("/");
   };
 
-  // ── Tier helper ───────────────────────────────────────────────────────────
-  function getTierEmoji(score) {
-    if (score >= 150) return "💎";
-    if (score >= 50) return "🥇";
-    if (score >= 10) return "🥈";
-    return "🥉";
-  }
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
-// 🎯 FINAL UI SYSTEM (DO NOT CHANGE AGAIN)
-function getCategoryColor(type) {
-  switch (type) {
-    case "emergency":
-      return "text-red-500";
-    case "event":
-      return "text-yellow-500";
-    case "casual":
-      return "text-blue-500";
-    case "promotional":
-      return "text-green-500";
-    default:
-      return "text-gray-500";
-  }
-}
-
-const UI = {
-  card: "bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition",
-  input: "w-full p-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500",
-  buttonPrimary: "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl transition",
-  buttonSecondary: "bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl transition",
-};
-
-const TEXT = {
-  title: "text-lg font-semibold text-gray-800",
-  subtitle: "text-sm text-gray-500",
-  body: "text-sm text-gray-700",
-  small: "text-xs text-gray-500",
-};
-
-const TAG = {
-  emergency: "bg-red-100 text-red-600",
-  event: "bg-yellow-100 text-yellow-600",
-  casual: "bg-blue-100 text-blue-600",
-  promotional: "bg-green-100 text-green-600",
-};
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f8fafc] via-[#eef2ff] to-[#ede9fe] flex flex-col text-gray-800">
+    <div className="min-h-screen bg-[#f0f2f8] flex flex-col">
 
-      {/* HEADER */}
-    <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
-      <div className="flex items-center gap-3">
-        <img src={logo} alt="logo" className="w-9 h-9 object-contain hover:scale-105 transition" />
-        <h1 className="text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-sm hover:scale-105 transition">
-          HOODCONNECT
-        </h1>
-      </div>
-
-      <div className="flex-1 max-w-xl px-6">
-        <input
-          className={UI.input}
-          placeholder="Search posts..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-        <div className="flex items-center gap-4">
-          {/* BELL */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowNotifications(!showNotifications);
-                if (!showNotifications && user?.id) {
-                  axios.put(
-                    `${BASE_URL}/notifications/${user.id}/read`,
-                    {},
-                    { headers: authHeaders() }
-                  );
-                  setNotifications((prev) =>
-                    prev.map((n) => ({ ...n, read: true }))
-                  );
-                }
-              }}
-              className={UI.buttonPrimary}>
-            
-              🔔
-              {notifications.filter((n) => !n.read).length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {notifications.filter((n) => !n.read).length}
-                </span>
-              )}
-            </button>
-
-            {showNotifications && (
-              <div className="absolute right-0 top-10 w-80 bg-white text-black rounded-2xl shadow-2xl z-50 overflow-hidden">
-                <div className="p-3 border-b font-bold text-gray-700">
-                  Notifications
-                </div>
-                {notifications.length === 0 ? (
-                  <p className="p-4 text-sm text-gray-500 text-center">
-                    No notifications yet
-                  </p>
-                ) : (
-                  notifications.slice(0, 10).map((n, i) => (
-                    <div
-                      key={i}
-                      className={`p-3 border-b text-sm ${
-                        !n.read ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <p>
-                        <b>{n.senderName}</b>{" "}
-                        {n.type === "like" && "liked your post"}
-                        {n.type === "comment" && "commented on your post"}
-                        {n.type === "trust" && "voted on your post"}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        📝 {n.postTitle}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {new Date(n.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+      {/* ── HEADER ── */}
+      <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+        <div className="flex items-center gap-4 px-5 py-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <img src={logo} alt="logo" className="w-8 h-8 object-contain" />
+            <span className="text-xl font-black tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              HOODCONNECT
+            </span>
           </div>
 
-          <button
-            onClick={handleLogout}
-            className={UI.buttonPrimary}
-          >
-            Logout
-          </button>
+          <div className="flex-1 max-w-lg mx-auto">
+            <input
+              className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
+              placeholder="Search posts, locations..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Bell */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  if (!showNotifications && user?.id) {
+                    axios.put(`${BASE_URL}/notifications/${user.id}/read`, {}, { headers: authHeaders() });
+                    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+                  }
+                }}
+                className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-600 transition"
+              >
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <span className="font-semibold text-gray-800 text-sm">Notifications</span>
+                    <button onClick={() => setShowNotifications(false)} className="text-gray-400 hover:text-gray-600">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <p className="p-5 text-sm text-gray-400 text-center">You're all caught up 🎉</p>
+                  ) : (
+                    notifications.slice(0, 10).map((n, i) => (
+                      <div key={i} className={`px-4 py-3 border-b border-gray-50 text-sm ${!n.read ? "bg-blue-50/60" : ""}`}>
+                        <p className="text-gray-700">
+                          <span className="font-semibold text-gray-900">{n.senderName}</span>{" "}
+                          {n.type === "like" && "liked your post"}
+                          {n.type === "comment" && "commented on your post"}
+                          {n.type === "trust" && "voted on your post"}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">📝 {n.postTitle}</p>
+                        <p className="text-xs text-gray-300 mt-0.5">
+                          {new Date(n.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 text-sm font-medium transition"
+            >
+              <LogOut size={15} />
+              Logout
+            </button>
+          </div>
         </div>
-    </div>
+      </header>
 
+      {/* ── BODY ── */}
+      <div className="flex flex-1">
 
-    {/* BODY */}
-    <div className="flex flex-1 gap-6 px-6">
-
-        {/* LEFT SIDEBAR */}
-        <div
-          className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
-        >
-          <button onClick={() => setCollapsed(!collapsed)} className="mb-4">
-            <Menu />
+        {/* ── LEFT SIDEBAR ── */}
+        <aside className={`bg-white border-r border-gray-200 flex flex-col gap-1 py-4 px-2 shrink-0 transition-all duration-200 ${collapsed ? "w-14" : "w-48"}`}>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-full flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 text-gray-400 mb-1 transition"
+          >
+            <Menu size={17} />
           </button>
 
           <button
-            onClick={() => {
-              setNearMe(!nearMe);
-              getLocation();
-            }}
-            className={`${UI.buttonPrimary} ${nearMe ? "bg-white/20" : ""}`}
+            onClick={() => { setNearMe(!nearMe); getLocation(); }}
+            className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition ${nearMe ? "bg-purple-600 text-white" : "hover:bg-gray-100 text-gray-600"}`}
           >
-            📍 {!collapsed && "Near Me"}
+            <MapPin size={16} className={nearMe ? "text-white" : "text-purple-500"} />
+            {!collapsed && <span>Near Me</span>}
           </button>
 
-          {/* Bookmarks toggle */}
           <button
             onClick={() => setShowBookmarks(!showBookmarks)}
-            className={`UI.buttonSecondary ${
-              showBookmarks ? "bg-white/20" : ""
-            }`}
+            className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition ${showBookmarks ? "bg-purple-600 text-white" : "hover:bg-gray-100 text-gray-600"}`}
           >
-            {showBookmarks ? (
-              <BookmarkCheck size={18} />
-            ) : (
-              <Bookmark size={18} />
-            )}
-            {!collapsed && <span>Saved Posts</span>}
+            {showBookmarks
+              ? <BookmarkCheck size={16} className="text-white" />
+              : <Bookmark size={16} className="text-purple-500" />
+            }
+            {!collapsed && <span>Saved</span>}
           </button>
+
+          <div className="my-1 mx-2 border-t border-gray-100" />
 
           {filters.map((f) => {
             const Icon = f.icon;
+            const active = type === f.key;
             return (
               <button
                 key={f.key}
                 onClick={() => setType(f.key)}
-                className={`UI.buttonPrimary ${
-                  type === f.key
-                    ? "bg-primary/10 text-primary"
-                    : "hover:bg-gray-100"
-                }`}
+                className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition ${active ? "bg-purple-600 text-white" : "hover:bg-gray-100 text-gray-600"}`}
               >
-                <Icon size={18} className={getCategoryColor(f.key)} />
+                <Icon size={16} className={active ? "text-white" : "text-purple-500"} />
                 {!collapsed && <span>{f.label}</span>}
               </button>
             );
           })}
-        </div>
+        </aside>
 
-        {/* CENTER */}
-        <div className="flex-1 max-w-2xl mx-auto p-6 relative z-10">
+        {/* ── CENTER FEED ── */}
+        <main className="flex-1 py-5 px-4 overflow-y-auto" style={{ maxWidth: 640, margin: "0 auto" }}>
+
           <button
             onClick={() => setShowModal(true)}
-            className={UI.buttonSecondary}
+            className="w-full mb-5 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-sm shadow-md hover:shadow-lg hover:from-blue-700 hover:to-purple-700 transition"
           >
-            ➕ Create Post
+            <Plus size={17} />
+            Create Post
           </button>
 
-          {/* AREA HEADING */}
-          <div className="mb-4 text-sm text-black/60 font-semibold uppercase tracking-widest">
-            {showBookmarks
-              ? "📌 Saved Posts"
-              : `📍 ${
-                  user?.area
-                    ?.replace(/-/g, " ")
-                    .replace(/\b\w/g, (c) => c.toUpperCase()) || "Your Hood"
-                }`}
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin size={13} className="text-purple-400" />
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              {showBookmarks
+                ? "Saved Posts"
+                : user?.area?.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Your Hood"}
+            </span>
           </div>
 
-          {/* POST CARDS */}
           {filteredPosts.length === 0 && (
-            <div className={UI.card}>
-              {showBookmarks
-                ? "No saved posts yet. Bookmark posts to see them here."
-                : "No posts in this area yet. Be the first!"}
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center text-gray-400 text-sm">
+              {showBookmarks ? "No saved posts yet." : "No posts in this area yet — be the first! 🌟"}
             </div>
           )}
 
           {filteredPosts.map((post) => (
-  <div key={post._id} className={`${UI.card} mb-6 overflow-hidden`}>
+            <article key={post._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-5 overflow-hidden hover:shadow-md transition">
 
-    {/* HEADER */}
-    <div className="p-4">
-      <div className="flex justify-between items-start">
-        <div>
-          <p
-            className={`${TEXT.subtitle} cursor-pointer hover:text-purple-600 flex items-center gap-1`}
-            onClick={() =>
-              post.userId && navigate(`/profile/${post.userId}`)
-            }
-          >
-            👤 {post.userName || "Anonymous"}
+              {post.type === "emergency" && post.alert && (
+                <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white px-4 py-2 text-xs font-bold tracking-wide flex items-center gap-2">
+                  <span className="animate-pulse">🚨</span> EMERGENCY ALERT
+                </div>
+              )}
 
-            {post.verified && (
-              <span className="ml-1 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-semibold">
-                ✓ Verified
-              </span>
-            )}
-          </p>
+              {/* Card header */}
+              <div className="flex items-start justify-between px-4 pt-4 pb-2">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-white font-bold text-sm cursor-pointer shrink-0"
+                    onClick={() => post.userId && navigate(`/profile/${post.userId}`)}
+                  >
+                    {(post.userName || "A")[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => post.userId && navigate(`/profile/${post.userId}`)}>
+                      <span className="font-semibold text-sm text-gray-800 hover:text-purple-600 transition">
+                        {post.userName || "Anonymous"}
+                      </span>
+                      {post.verified && (
+                        <span className="text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold">
+                          ✓ Verified
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TAG[post.type] || "bg-gray-100 text-gray-500"}`}>
+                        {TYPE_ICON[post.type]} {post.type}
+                      </span>
+                      <span className="text-[11px] text-gray-400">
+                        {new Date(post.createdAt).toLocaleDateString()} · {new Date(post.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-          <p className={TEXT.small}>
-            {new Date(post.createdAt).toLocaleDateString()} •{" "}
-            {new Date(post.createdAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        </div>
+                <button onClick={() => handleBookmark(post._id)} className="p-1.5 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-purple-600 transition">
+                  {bookmarks.has(post._id) ? <BookmarkCheck size={17} className="text-purple-600" /> : <Bookmark size={17} />}
+                </button>
+              </div>
 
-        {/* Bookmark */}
-        <button
-          onClick={() => handleBookmark(post._id)}
-          className={UI.buttonSecondary}
-        >
-          {bookmarks.has(post._id) ? (
-            <BookmarkCheck size={18} />
-          ) : (
-            <Bookmark size={18} />
-          )}
-        </button>
-      </div>
+              {/* Location */}
+              <div className="px-4 pb-2">
+                <p className="text-xs text-gray-400 flex items-center gap-1">
+                  <MapPin size={10} className="text-purple-400 shrink-0" />
+                  <span className="truncate">{post.targetAddress || post.originAddress || "Unknown"}</span>
+                  {latitude && (post.targetLat || post.originLat) && (
+                    <span className="ml-auto shrink-0 text-gray-300">
+                      {getDistance(Number(latitude), Number(longitude), Number(post.targetLat || post.originLat), Number(post.targetLng || post.originLng)).toFixed(1)} km
+                    </span>
+                  )}
+                </p>
+              </div>
 
-      {/* LOCATION */}
-      <p className={`${TEXT.body} mt-1`}>
-        📍 {post.targetAddress || "Not specified"}
-      </p>
+              {/* Content */}
+              <div className="px-4 pb-3">
+                <h3 className="font-bold text-gray-900 text-base leading-snug">{post.title}</h3>
+                <p className="text-sm text-gray-600 mt-1 leading-relaxed">{post.content}</p>
+              </div>
 
-      <p className={TEXT.small}>
-        Posted from: {post.originAddress}
-      </p>
+              {post.image && (
+                <img src={post.image} className="w-full max-h-72 object-cover" onError={(e) => (e.target.style.display = "none")} alt="post" />
+              )}
+              {post.video && <video src={post.video} controls className="w-full" />}
 
-      {/* DISTANCE */}
-      {latitude && (post.targetLat || post.originLat) && (
-        <p className={TEXT.small}>
-          📍{" "}
-          {getDistance(
-            Number(latitude),
-            Number(longitude),
-            Number(post.targetLat || post.originLat),
-            Number(post.targetLng || post.originLng)
-          ).toFixed(1)}{" "}
-          km away
-        </p>
-      )}
+              {/* Trust bar */}
+              {(post.trustUpvotes?.length > 0 || post.trustDownvotes?.length > 0) && (
+                <div className="px-4 pt-2 pb-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+                    <span>Community Trust</span>
+                    <span className="text-gray-500 font-medium">
+                      {post.trustUpvotes?.length || 0}/{(post.trustUpvotes?.length || 0) + (post.trustDownvotes?.length || 0)} verified
+                    </span>
+                  </div>
+                  <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all"
+                      style={{ width: `${((post.trustUpvotes?.length || 0) / Math.max(1, (post.trustUpvotes?.length || 0) + (post.trustDownvotes?.length || 0))) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
-      {/* TAG + TIME */}
-      <div className="flex items-center gap-2 mt-2">
-        <span
-          className={`text-xs px-2 py-1 rounded-full font-semibold ${TAG[post.type]}`}
-        >
-          {post.type}
-        </span>
+              {/* Actions */}
+              <div className="flex items-center gap-1 px-3 py-2 border-t border-gray-50 flex-wrap">
+                <button onClick={() => handleTrust(post._id, "up")} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-green-50 hover:text-green-600 transition">
+                  👍 {post.trustUpvotes?.length || 0}
+                </button>
+                <button onClick={() => handleTrust(post._id, "down")} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-red-50 hover:text-red-500 transition">
+                  👎 {post.trustDownvotes?.length || 0}
+                </button>
+                <button onClick={() => handleLike(post._id)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-pink-50 hover:text-pink-500 transition">
+                  ❤️ {post.likes?.length || 0}
+                </button>
+                <button
+                  onClick={() => setOpenComments((prev) => ({ ...prev, [post._id]: !prev[post._id] }))}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${openComments[post._id] ? "bg-blue-100 text-blue-600" : "text-gray-500 hover:bg-blue-50 hover:text-blue-500"}`}
+                >
+                  💬 {post.comments?.length || 0}
+                </button>
+                <div className="flex-1" />
+                <span className="text-[11px] text-gray-300 px-1">⏳ {getTimeLeft(post.createdAt)}</span>
+                {post.userId === user?.id && (
+                  <>
+                    <button onClick={() => handleEdit(post._id)} className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">✏️</button>
+                    <button onClick={() => handleDelete(post._id)} className="px-2 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-50 hover:text-red-600 transition">🗑️</button>
+                  </>
+                )}
+              </div>
 
-        <span className={TEXT.small}>
-          ⏳ {getTimeLeft(post.createdAt)}
-        </span>
-      </div>
-    </div>
+              {/* Comments */}
+              {openComments[post._id] && (
+                <div className="px-4 pb-4 pt-2 bg-gray-50 border-t border-gray-100">
+                  {post.comments?.length > 0 && (
+                    <div className="mb-3 space-y-2">
+                      {post.comments.map((c, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-300 to-purple-300 flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5">
+                            {(c.userName || "A")[0].toUpperCase()}
+                          </div>
+                          <div className="bg-white rounded-xl px-3 py-2 text-xs text-gray-700 border border-gray-100 flex-1">
+                            <span className="font-semibold text-purple-600 cursor-pointer" onClick={() => c.userId && navigate(`/profile/${c.userId}`)}>
+                              {c.userName}
+                            </span>{" "}{c.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 px-3 py-2 rounded-xl bg-white border border-gray-200 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                      placeholder="Write a comment..."
+                      value={commentText[post._id] || ""}
+                      onChange={(e) => setCommentText({ ...commentText, [post._id]: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && handleComment(post._id)}
+                    />
+                    <button onClick={() => handleComment(post._id)} className="px-4 py-2 rounded-xl bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition">
+                      Post
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
+          ))}
+        </main>
 
-    {/* EMERGENCY */}
-    {post.type === "emergency" && post.alert && (
-      <div className="bg-red-500 text-white p-2 text-center font-bold">
-        🚨 EMERGENCY ALERT
-      </div>
-    )}
+        {/* ── RIGHT SIDEBAR ── */}
+        <aside className="w-60 shrink-0 py-5 px-3 space-y-4">
 
-    {/* CONTENT */}
-    <div className="px-4 pb-2">
-      <h3 className={TEXT.title}>{post.title}</h3>
-      <p className={`${TEXT.body} mt-1`}>{post.content}</p>
-    </div>
-
-    {/* MEDIA */}
-    {post.image && (
-      <img
-        src={post.image}
-        className="w-full"
-        onError={(e) => (e.target.style.display = "none")}
-        alt="post"
-      />
-    )}
-
-    {post.video && (
-      <video src={post.video} controls className="w-full" />
-    )}
-
-    {/* TRUST BAR */}
-    {(post.trustUpvotes?.length > 0 ||
-      post.trustDownvotes?.length > 0) && (
-      <div className="px-4 pt-2">
-        <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-          <span>Community Trust</span>
-          <span className="ml-auto">
-            {post.trustUpvotes?.length || 0} /{" "}
-            {(post.trustUpvotes?.length || 0) +
-              (post.trustDownvotes?.length || 0)}{" "}
-            verified
-          </span>
-        </div>
-
-        <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-green-500 rounded-full transition-all"
-            style={{
-              width: `${
-                ((post.trustUpvotes?.length || 0) /
-                  Math.max(
-                    1,
-                    (post.trustUpvotes?.length || 0) +
-                      (post.trustDownvotes?.length || 0)
-                  )) *
-                100
-              }%`,
-            }}
-          />
-        </div>
-      </div>
-    )}
-
-    {/* ACTIONS */}
-    <div className="flex flex-wrap gap-3 px-4 py-3 text-sm">
-      <button
-        onClick={() => handleTrust(post._id, "up")}
-        className={UI.buttonSecondary}
-      >
-        👍 {post.trustUpvotes?.length || 0}
-      </button>
-
-      <button
-        onClick={() => handleTrust(post._id, "down")}
-        className={UI.buttonSecondary}
-      >
-        ❌ {post.trustDownvotes?.length || 0}
-      </button>
-
-      <button
-        onClick={() => handleLike(post._id)}
-        className={UI.buttonSecondary}
-      >
-        ❤️ {post.likes?.length || 0}
-      </button>
-
-      <button className={UI.buttonSecondary}>
-        💬 {post.comments?.length || 0}
-      </button>
-
-      {post.userId === user?.id && (
-        <>
-          <button
-            onClick={() => handleEdit(post._id)}
-            className={UI.buttonSecondary}
-          >
-            ✏️ Edit
-          </button>
-
-          <button
-            onClick={() => handleDelete(post._id)}
-            className="bg-red-500 text-white px-3 py-1 rounded-lg"
-          >
-            🗑️ Delete
-          </button>
-        </>
-      )}
-    </div>
-
-    {/* COMMENTS */}
-    <div className="px-4 pb-4">
-      <input
-        className={UI.input}
-        placeholder="Write a comment..."
-        value={commentText[post._id] || ""}
-        onChange={(e) =>
-          setCommentText({
-            ...commentText,
-            [post._id]: e.target.value,
-          })
-        }
-      />
-
-      <button
-        onClick={() => handleComment(post._id)}
-        className={`${UI.buttonPrimary} mt-2`}
-      >
-        Post
-      </button>
-
-      <div className="mt-3">
-        {post.comments?.map((c, i) => (
-          <p key={i} className={TEXT.body}>
-            <b
-              className="cursor-pointer hover:text-purple-600"
-              onClick={() =>
-                c.userId && navigate(`/profile/${c.userId}`)
-              }
-            >
-              {c.userName}:
-            </b>{" "}
-            {c.text}
-          </p>
-        ))}
-      </div>
-    </div>
-
-  </div>
-))}
-
-        </div>
-
-        {/* RIGHT SIDEBAR */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-
-          {/* USER CARD */}
-          <div className={UI.card}>
-            <div className="text-center">
+          {/* User Card */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-col items-center text-center">
               <div
-                className="w-16 h-16 mx-auto bg-purple-500 rounded-full flex items-center justify-center text-xl cursor-pointer hover:bg-purple-400 transition"
+                className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black cursor-pointer hover:scale-105 transition shadow"
                 onClick={() => user?.id && navigate(`/profile/${user.id}`)}
               >
-                {user?.name?.charAt(0) || "U"}
+                {user?.name?.charAt(0).toUpperCase() || "U"}
               </div>
-              <h2 className="mt-3 flex items-center justify-center gap-1">
-                {user?.name || "Unknown User"}
+
+              <div className="mt-3 flex items-center gap-1.5">
+                <span className="font-bold text-gray-800 text-sm">{user?.name || "Unknown"}</span>
                 {user?.verified && (
-                  <span
-                    title="Verified community member"
-                    className="text-gray-400 text-sm bg-blue-900/50 px-1.5 py-0.5 rounded-full"
-                  >
-                    ✓
-                  </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold">✓</span>
                 )}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                📍 {user?.area || "No area selected"}
+              </div>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <MapPin size={10} />
+                {user?.area?.replace(/-/g, " ") || "No area"}
               </p>
 
-              {/* AREA SWITCH */}
               <select
-                className="mt-3 w-full p-2 rounded text-black"
+                className="mt-3 w-full px-2 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                 value={user?.area || ""}
                 onChange={(e) => {
                   const newArea = e.target.value;
                   const updatedUser = { ...user, area: newArea };
                   localStorage.setItem("user", JSON.stringify(updatedUser));
                   setUser(updatedUser);
-                  if (socketRef.current) {
-                    socketRef.current.emit("joinRoom", { area: newArea });
-                  }
+                  if (socketRef.current) socketRef.current.emit("joinRoom", { area: newArea });
                 }}
               >
                 {areas.map((a) => (
                   <option key={a._id} value={a.name}>
-                    {a.name
-                      .replace(/-/g, " ")
-                      .replace(/\b\w/g, (c) => c.toUpperCase())}
+                    {a.name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                   </option>
                 ))}
               </select>
+
+              <button
+                onClick={() => user?.id && navigate(`/profile/${user.id}`)}
+                className="mt-3 w-full flex items-center justify-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium transition py-1.5 rounded-lg hover:bg-purple-50"
+              >
+                View Profile <ChevronRight size={12} />
+              </button>
             </div>
           </div>
 
-          {/* LEADERBOARD CARD */}
-          <div className={UI.card}>
-            <h3 className="font-bold flex items-center gap-2 mb-3">
-              <Trophy size={16} className="text-yellow-400" />
-              Hood Leaderboard
-            </h3>
+          {/* Leaderboard */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center">
+                <Trophy size={13} className="text-amber-500" />
+              </div>
+              <span className="font-bold text-gray-800 text-sm">Hood Leaderboard</span>
+            </div>
+
             {leaderboard.length === 0 ? (
-              <p className="text-sm text-white/40 text-center">No data yet</p>
+              <p className="text-xs text-gray-400 text-center py-3">No activity yet</p>
             ) : (
-              leaderboard.map((entry, i) => (
-                <div
-                  key={entry.userId}
-                  className="flex items-center gap-2 py-2 border-b border-white/10 last:border-0 cursor-pointer hover:bg-white/5 rounded px-1"
-                  onClick={() => navigate(`/profile/${entry.userId}`)}
-                >
-                  <span className="text-lg">
-                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
-                  </span>
-                  <span className="flex-1 text-sm truncate">
-                    {entry.name}
-                    {entry.verified && (
-                      <span className="ml-1 text-gray-400 text-xs">✓</span>
-                    )}
-                  </span>
-                  <span className="text-xs text-white/60">
-                    {entry.score} pts
-                  </span>
-                </div>
-              ))
+              <div className="space-y-1">
+                {leaderboard.map((entry, i) => (
+                  <div
+                    key={entry.userId}
+                    onClick={() => navigate(`/profile/${entry.userId}`)}
+                    className="flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-purple-50 cursor-pointer transition"
+                  >
+                    <span className="text-sm w-5 text-center shrink-0">
+                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span className="text-xs text-gray-400 font-bold">#{i + 1}</span>}
+                    </span>
+                    <span className="flex-1 text-xs font-medium text-gray-700 truncate">
+                      {entry.name}
+                      {entry.verified && <span className="ml-1 text-blue-400 text-[10px]">✓</span>}
+                    </span>
+                    <span className="text-[11px] font-semibold text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded-full shrink-0">
+                      {entry.score}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        </div>
+        </aside>
       </div>
 
-      {/* CREATE POST MODAL */}
+      {/* ── CREATE POST MODAL ── */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50">
-          <div className="bg-white text-black p-6 rounded-2xl w-[420px] shadow-2xl relative">
-            <button
-              onClick={() => setShowModal(false)}
-              className={UI.buttonPrimary}
-            >
-              ✖
-            </button>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-purple-600">
+              <h2 className="font-bold text-white text-base">Create Post</h2>
+              <button onClick={() => setShowModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition">
+                <X size={14} />
+              </button>
+            </div>
 
-            <h2 className="text-xl font-bold mb-4 text-center">
-              ✨ Create New Post
-            </h2>
-
-            <input
-              className={UI.input}
-              placeholder="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <textarea
-              className="w-full p-3 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
-              placeholder="Content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-            />
-            <input
-              className={UI.input}
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            />
-
-            <button
-              onClick={getLocation}
-              className="w-full mb-3 bg-green-500/80 hover:bg-green-500 p-2 rounded-xl transition"
-            >
-              📍 Use My Location
-            </button>
-
-            <select
-              className="w-full p-2 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
-              value={type === "all" ? "casual" : type}
-              onChange={(e) => setType(e.target.value)}
-            >
-              <option value="casual">Casual</option>
-              <option value="emergency">Emergency</option>
-              <option value="event">Event</option>
-              <option value="promotional">Promotional</option>
-            </select>
-
-            <select
-              className="w-full p-2 mb-3 rounded-xl bg-white border border-gray-200 shadow-sm border border-white/20"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
-            >
-              <option value="low">Low severity</option>
-              <option value="medium">Medium severity</option>
-              <option value="high">High severity</option>
-            </select>
-
-            <div className="flex items-center gap-2 mb-3">
+            <div className="px-6 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
               <input
-                type="checkbox"
-                checked={alertUsers}
-                onChange={(e) => setAlertUsers(e.target.checked)}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
+                placeholder="Title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
               />
-              <span className="text-sm">🔔 Send Emergency Alert</span>
-            </div>
-
-            <div className="flex items-center gap-2 mb-3">
+              <textarea
+                rows={3}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition resize-none"
+                placeholder="What's happening in your hood?"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+              />
               <input
-                type="checkbox"
-                checked={anonymous}
-                onChange={(e) => setAnonymous(e.target.checked)}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
+                placeholder="Location (optional)"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
               />
-              <span className="text-sm">Post as Anonymous</span>
+              <button
+                onClick={getLocation}
+                className="w-full py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition"
+              >
+                📍 Use My Current Location
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+                  value={type === "all" ? "casual" : type}
+                  onChange={(e) => setType(e.target.value)}
+                >
+                  <option value="casual">💬 Casual</option>
+                  <option value="emergency">🚨 Emergency</option>
+                  <option value="event">📅 Event</option>
+                  <option value="promotional">📢 Promotional</option>
+                </select>
+                <select
+                  className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+                  value={severity}
+                  onChange={(e) => setSeverity(e.target.value)}
+                >
+                  <option value="low">🟢 Low</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="high">🔴 High</option>
+                </select>
+              </div>
+
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <input type="checkbox" className="rounded accent-purple-600" checked={alertUsers} onChange={(e) => setAlertUsers(e.target.checked)} />
+                  🔔 Alert users
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <input type="checkbox" className="rounded accent-purple-600" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+                  👤 Anonymous
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-gray-300 text-sm text-gray-500 cursor-pointer hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition">
+                  📸 Image
+                  <input type="file" accept="image/*" hidden onChange={(e) => { const file = e.target.files[0]; setImage(file); setImagePreview(URL.createObjectURL(file)); }} />
+                </label>
+                <label className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-gray-300 text-sm text-gray-500 cursor-pointer hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition">
+                  🎥 Video
+                  <input type="file" accept="video/*" hidden onChange={(e) => setVideo(e.target.files[0])} />
+                </label>
+              </div>
+
+              {imagePreview && (
+                <img src={imagePreview} className="w-full rounded-xl object-cover max-h-48" alt="preview" />
+              )}
             </div>
 
-            <div className="flex gap-3 mb-3">
-              <label className="flex-1 bg-white border border-gray-200 shadow-sm border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
-                📸 Choose Image
-                <input
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => {
-                    const file = e.target.files[0];
-                    setImage(file);
-                    setImagePreview(URL.createObjectURL(file));
-                  }}
-                />
-              </label>
-              <label className="flex-1 bg-white border border-gray-200 shadow-sm border border-white/20 p-2 rounded-xl text-center cursor-pointer hover:bg-white/20">
-                🎥 Choose Video
-                <input
-                  type="file"
-                  accept="video/*"
-                  hidden
-                  onChange={(e) => setVideo(e.target.files[0])}
-                />
-              </label>
+            <div className="px-6 py-4 border-t border-gray-100">
+              <button
+                onClick={() => { handlePost(); setShowModal(false); }}
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm shadow hover:shadow-md hover:from-blue-700 hover:to-purple-700 transition"
+              >
+                🚀 Post to Hood
+              </button>
             </div>
-
-            {imagePreview && (
-              <img
-                src={imagePreview}
-                className="w-full rounded-xl mt-3"
-                alt="preview"
-              />
-            )}
-
-            <button
-              onClick={() => {
-                handlePost();
-                setShowModal(false);
-              }}
-              className={UI.buttonSecondary}
-            >
-              🚀 Post
-            </button>
           </div>
         </div>
       )}
 
-      {/* EMERGENCY POPUP */}
+      {/* ── EMERGENCY POPUP ── */}
       {emergencyPost && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-red-600 text-white p-8 rounded-2xl w-[400px] text-center shadow-2xl animate-pulse">
-            <h2 className="text-2xl font-bold mb-4">🚨 EMERGENCY ALERT 🚨</h2>
-            <h3 className="text-lg font-semibold">{emergencyPost.title}</h3>
-            <p className="mt-2">{emergencyPost.content}</p>
-            <p className="mt-2 text-sm">
-              📍 {emergencyPost.targetAddress || emergencyPost.originAddress}
-            </p>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-red-500 to-rose-700 text-white p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
+            <div className="text-5xl mb-3 animate-bounce">🚨</div>
+            <h2 className="text-xl font-black mb-2">EMERGENCY ALERT</h2>
+            <h3 className="text-base font-semibold opacity-90">{emergencyPost.title}</h3>
+            <p className="mt-2 text-sm opacity-80">{emergencyPost.content}</p>
+            <p className="mt-3 text-xs opacity-70">📍 {emergencyPost.targetAddress || emergencyPost.originAddress}</p>
             <button
               onClick={() => setEmergencyPost(null)}
-              className="mt-6 bg-white text-red-600 px-4 py-2 rounded-lg font-semibold"
+              className="mt-6 bg-white text-red-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-red-50 transition"
             >
-              Close
+              Dismiss
             </button>
           </div>
         </div>
       )}
 
-      {/* FIRST-TIME AREA MODAL */}
+      {/* ── AREA MODAL ── */}
       {showLocationModal && (
-        <div className="fixed inset-0 bg-black/80 flex justify-center items-center z-50">
-          <div className="bg-white text-black p-6 rounded-2xl w-[350px] text-center">
-            <h2 className="text-xl font-bold mb-4">📍 Enter Your Area</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-7 w-full max-w-xs text-center shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center mx-auto mb-4">
+              <MapPin size={24} className="text-purple-600" />
+            </div>
+            <h2 className="text-lg font-black text-gray-800 mb-1">Where do you live?</h2>
+            <p className="text-xs text-gray-400 mb-4">We'll show posts from your neighbourhood</p>
             <input
-              className={UI.input}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 transition mb-3"
               placeholder="e.g. Andheri, Borivali, Majiwada"
               value={tempArea}
               onChange={(e) => setTempArea(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && tempArea) {
+                  const formatted = tempArea.toLowerCase().replace(/\s/g, "-");
+                  axios.post(`${BASE_URL}/areas`, { name: formatted }, { headers: authHeaders() });
+                  const updatedUser = { ...user, area: formatted };
+                  localStorage.setItem("user", JSON.stringify(updatedUser));
+                  setUser(updatedUser);
+                  if (socketRef.current) socketRef.current.emit("joinRoom", { area: formatted });
+                  setShowLocationModal(false);
+                }
+              }}
             />
             <button
-              className={UI.buttonPrimary}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm hover:from-blue-700 hover:to-purple-700 transition"
               onClick={() => {
                 if (!tempArea) return;
                 const formatted = tempArea.toLowerCase().replace(/\s/g, "-");
-
-                axios.post(
-                  `${BASE_URL}/areas`,
-                  { name: formatted },
-                  { headers: authHeaders() }
-                );
-
+                axios.post(`${BASE_URL}/areas`, { name: formatted }, { headers: authHeaders() });
                 const updatedUser = { ...user, area: formatted };
                 localStorage.setItem("user", JSON.stringify(updatedUser));
                 setUser(updatedUser);
-                if (socketRef.current)
-                  socketRef.current.emit("joinRoom", { area: formatted });
+                if (socketRef.current) socketRef.current.emit("joinRoom", { area: formatted });
                 setShowLocationModal(false);
               }}
             >
-              Continue
+              Let's Go →
             </button>
           </div>
         </div>

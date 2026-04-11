@@ -398,6 +398,20 @@ export default function Dashboard() {
   }
 
 // 🎯 FINAL UI SYSTEM (DO NOT CHANGE AGAIN)
+function getCategoryColor(type) {
+  switch (type) {
+    case "emergency":
+      return "text-red-500";
+    case "event":
+      return "text-yellow-500";
+    case "casual":
+      return "text-blue-500";
+    case "promotional":
+      return "text-green-500";
+    default:
+      return "text-gray-500";
+  }
+}
 
 const UI = {
   card: "bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition",
@@ -534,9 +548,7 @@ const TAG = {
               setNearMe(!nearMe);
               getLocation();
             }}
-            className={`UI.buttonPrimary ${
-              nearMe ? "bg-white/20" : ""
-            }`}
+            className={`${UI.buttonPrimary} ${nearMe ? "bg-white/20" : ""}`}
           >
             📍 {!collapsed && "Near Me"}
           </button>
@@ -830,7 +842,7 @@ const TAG = {
     </div>
 
   </div>
-))}    
+))}
 
         </div>
 

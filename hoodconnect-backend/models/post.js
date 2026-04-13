@@ -1,5 +1,26 @@
 const mongoose = require("mongoose");
 
+// ── Nested reply sub-schema ───────────────────────────────────────────────────
+const replySchema = new mongoose.Schema({
+  userName:  String,
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  text:      String,
+  mentions:  [String],   // array of @username strings mentioned in this reply
+  likes:     [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  createdAt: { type: Date, default: Date.now },
+});
+
+// ── Comment sub-schema (with replies + likes + mentions) ──────────────────────
+const commentSchema = new mongoose.Schema({
+  userName:  String,
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  text:      String,
+  mentions:  [String],   // @username strings in the comment text
+  likes:     [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  replies:   [replySchema],
+  createdAt: { type: Date, default: Date.now },
+});
+
 const postSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
@@ -35,14 +56,8 @@ const postSchema = new mongoose.Schema(
     trustUpvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     trustDownvotes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-    comments: [
-      {
-        userName: String,
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        text: String,
-        createdAt: { type: Date, default: Date.now },
-      },
-    ],
+    // ── Upgraded comments ────────────────────────────────────────────────────
+    comments: [commentSchema],
 
     image: String,
     video: String,

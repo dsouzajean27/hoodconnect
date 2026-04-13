@@ -16,6 +16,22 @@ const userSchema = new mongoose.Schema({
   // Trust-score auto-badge (separate from Aadhaar)
   verified:  { type: Boolean, default: false },
 
+  // ── Badges ────────────────────────────────────────────────────────────────
+  // Each string is a badge key; the frontend maps keys to display info
+  badges: [{
+    type: String,
+    enum: [
+      "verified_citizen",    // Aadhaar verified by admin
+      "first_responder",     // 3+ emergency posts
+      "active_contributor",  // 20+ total posts
+      "top_of_area",         // #1 trust score in area
+      "truth_seeker",        // 25+ trust upvotes received
+      "old_timer",           // Account older than 6 months
+      "newcomer",            // Made their very first post
+    ],
+  }],
+
+
   bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
   bio:       { type: String, default: "" },
 

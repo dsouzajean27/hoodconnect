@@ -55,48 +55,34 @@ function adminMiddleware(req, res, next) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // BADGE LOGIC
-// Centralised function — call after any action that might unlock a badge.
-// Adds badge only once (avoids duplicates with $addToSet).
 // ═════════════════════════════════════════════════════════════════════════════
 async function checkAndGrantBadges(userId) {
   try {
-    const User = require("./models/user");
-    const Post = require("./models/post");
-
     const user  = await User.findById(userId);
     if (!user || user.banned) return;
-
-    const posts   = await Post.find({ userId, anonymous: false });
+    const posts = await Post.find({ userId, anonymous: false });
     const newBadges = [];
 
-    // 🟢 Verified Citizen — Aadhaar approved
     if (user.aadhaarStatus === "verified") newBadges.push("verified_citizen");
 
-    // 🚨 First Responder — 3+ emergency posts
     const emergencyCount = posts.filter(p => p.type === "emergency").length;
     if (emergencyCount >= 3) newBadges.push("first_responder");
 
-    // 💬 Active Contributor — 20+ total posts
     if (posts.length >= 20) newBadges.push("active_contributor");
 
-    // 🏆 Top of Area — trust score >= 50
     const trustScore = posts.reduce((t, p) => t + p.trustUpvotes.length - p.trustDownvotes.length, 0);
     if (trustScore >= 50) {
       newBadges.push("top_of_area");
-      // Also grant verified badge if not already
       if (!user.verified) await User.findByIdAndUpdate(userId, { verified: true });
     }
 
-    // 🔍 Truth Seeker — received 25+ trust upvotes total
     const totalUpvotes = posts.reduce((t, p) => t + p.trustUpvotes.length, 0);
     if (totalUpvotes >= 25) newBadges.push("truth_seeker");
 
-    // 📅 Old Timer — account older than 6 months
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     if (user.createdAt < sixMonthsAgo) newBadges.push("old_timer");
 
-    // ✨ Newcomer — made their very first post
     if (posts.length >= 1) newBadges.push("newcomer");
 
     if (newBadges.length > 0) {
@@ -118,8 +104,6 @@ io.on("connection", (socket) => {
 
   socket.on("joinUserRoom", ({ userId }) => { socket.join(`user:${userId}`); });
 
-  // ── DM: join a conversation room ─────────────────────────────────────────
-  // Room key = sorted pair of userIds so both sides join the same room
   socket.on("joinConversation", ({ userId, otherId }) => {
     const room = [userId, otherId].sort().join("_");
     socket.join(`chat:${room}`);
@@ -182,6 +166,61 @@ app.post("/login", async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// AREA DISCOVERY
+// GET /areas/nearby?lat=xx&lng=xx  — find areas whose posts are near a GPS point
+// Returns list of area names with post count and distance
+// ═════════════════════════════════════════════════════════════════════════════
+
+app.get("/areas/nearby", async (req, res) => {
+  try {
+    const { lat, lng, radius = 20 } = req.query;
+    if (!lat || !lng) return res.status(400).json({ message: "lat and lng required" });
+
+    // Find all posts within radius km using MongoDB $near
+    const posts = await Post.find({
+      geo: {
+        $near: {
+          $geometry: { type: "Point", coordinates: [parseFloat(lng), parseFloat(lat)] },
+          $maxDistance: parseFloat(radius) * 1000,
+        },
+      },
+    }).select("area targetLat targetLng originLat originLng");
+
+    // Group by area, count posts, compute average distance
+    const areaMap = {};
+    for (const p of posts) {
+      const pLat = p.targetLat || p.originLat;
+      const pLng = p.targetLng || p.originLng;
+      if (!p.area || !pLat || !pLng) continue;
+
+      const dist = haversine(parseFloat(lat), parseFloat(lng), pLat, pLng);
+      if (!areaMap[p.area]) areaMap[p.area] = { area: p.area, count: 0, minDist: dist };
+      areaMap[p.area].count++;
+      if (dist < areaMap[p.area].minDist) areaMap[p.area].minDist = dist;
+    }
+
+    const sorted = Object.values(areaMap)
+      .sort((a, b) => a.minDist - b.minDist)
+      .slice(0, 8)
+      .map(a => ({
+        name:     a.area,
+        label:    a.area.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+        count:    a.count,
+        distance: parseFloat(a.minDist.toFixed(1)),
+      }));
+
+    res.json(sorted);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = v => v * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // ADMIN — AADHAAR
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -195,7 +234,7 @@ app.get("/admin/aadhaar-pending", adminMiddleware, async (req, res) => {
 app.put("/admin/aadhaar/:userId/approve", adminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.params.userId, { aadhaarStatus: "verified" });
-    await checkAndGrantBadges(req.params.userId); // may unlock verified_citizen
+    await checkAndGrantBadges(req.params.userId);
     res.json({ message: "Aadhaar verified" });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -261,45 +300,79 @@ app.post("/posts", authMiddleware,
   upload.fields([{ name: "image", maxCount: 1 }, { name: "video", maxCount: 1 }]),
   async (req, res) => {
     try {
-      const { title, content, location, type, latitude, longitude, userId, userName, anonymous, alert, severity, area, geotagged, captureLat, captureLng, captureAddress } = req.body;
-      const isAnonymous = anonymous === "true";
-      const isAlert     = alert     === "true";
-      const isGeotagged = geotagged === "true";
+      const {
+        title, content, location, type,
+        latitude, longitude, userId, userName,
+        anonymous, alert, severity, area,
+        geotagged, captureLat, captureLng, captureAddress,
+        // Poll fields
+        isPoll, pollOptions, pollEndsAt,
+      } = req.body;
+
+      const isAnonymous  = anonymous === "true";
+      const isAlert      = alert     === "true";
+      const isGeotagged  = geotagged === "true";
+      const isPollPost   = isPoll    === "true";
+
       if (!latitude || !longitude) return res.status(400).json({ message: "Missing location" });
 
       let originAddress = "Unknown", targetAddress = "Unknown", targetLat = null, targetLng = null;
-      try { const g = await geocoder.reverse({ lat: parseFloat(latitude), lon: parseFloat(longitude) }); if (g?.[0]) originAddress = g[0].formattedAddress; } catch {}
+      try {
+        const g = await geocoder.reverse({ lat: parseFloat(latitude), lon: parseFloat(longitude) });
+        if (g?.[0]) originAddress = g[0].formattedAddress;
+      } catch {}
       if (location && location !== "Unknown") {
-        try { const g = await geocoder.geocode(location); if (g?.[0]) { targetLat = g[0].latitude; targetLng = g[0].longitude; targetAddress = g[0].formattedAddress; } } catch {}
+        try {
+          const g = await geocoder.geocode(location);
+          if (g?.[0]) { targetLat = g[0].latitude; targetLng = g[0].longitude; targetAddress = g[0].formattedAddress; }
+        } catch {}
       }
       if (!targetLat || !targetLng) { targetLat = parseFloat(latitude); targetLng = parseFloat(longitude); targetAddress = originAddress; }
 
       const normalizedArea = (area || "unknown").toLowerCase().replace(/\s/g, "-");
+
+      // Parse poll options — sent as JSON string from frontend
+      let parsedPollOptions = [];
+      if (isPollPost && pollOptions) {
+        try {
+          const opts = typeof pollOptions === "string" ? JSON.parse(pollOptions) : pollOptions;
+          parsedPollOptions = opts.filter(o => o.trim()).map(text => ({ text: text.trim(), votes: [] }));
+        } catch {}
+      }
+
       const post = new Post({
-        title, content, area: normalizedArea,
+        title,
+        content,
+        area:          normalizedArea,
         originAddress, originLat: parseFloat(latitude), originLng: parseFloat(longitude),
-        targetAddress, targetLat, targetLng, type,
-        anonymous: isAnonymous, alert: isAlert,
-        userName: isAnonymous ? "Anonymous" : userName,
-        userId:   isAnonymous ? null : userId,
-        severity: severity || "low",
-        geo: { type: "Point", coordinates: [targetLng, targetLat] },
-        image: req.files?.image?.[0]?.path || null,
-        video: req.files?.video?.[0]?.path || null,
-        geotagged: isGeotagged,
-        captureLat: captureLat ? parseFloat(captureLat) : null,
-        captureLng: captureLng ? parseFloat(captureLng) : null,
+        targetAddress, targetLat, targetLng,
+        type,
+        anonymous:     isAnonymous,
+        alert:         isAlert,
+        userName:      isAnonymous ? "Anonymous" : userName,
+        userId:        isAnonymous ? null : userId,
+        severity:      severity || "low",
+        geo:           { type: "Point", coordinates: [targetLng, targetLat] },
+        image:         req.files?.image?.[0]?.path || null,
+        video:         req.files?.video?.[0]?.path || null,
+        geotagged:     isGeotagged,
+        captureLat:    captureLat    ? parseFloat(captureLat)  : null,
+        captureLng:    captureLng    ? parseFloat(captureLng)  : null,
         captureAddress: captureAddress || null,
+        // Poll
+        isPoll:       isPollPost,
+        pollOptions:  parsedPollOptions,
+        pollEndsAt:   pollEndsAt ? new Date(pollEndsAt) : null,
       });
+
+
       await post.save();
       await saveArea(normalizedArea);
 
-      // Check badges for the poster
       if (!isAnonymous && userId) await checkAndGrantBadges(userId);
 
       io.to(normalizedArea).emit("newPost", post);
 
-      // ── Emergency broadcast: emit to entire area room with special event ──
       if (isAlert && type === "emergency") {
         io.to(normalizedArea).emit("emergencyBroadcast", {
           postId:   post._id,
@@ -372,19 +445,14 @@ app.put("/posts/:id/like", authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Upgraded comment: supports mentions in text ───────────────────────────────
 app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
   try {
     const { text, userName, userId } = req.body;
     const post = await Post.findById(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
-
-    // Extract @mentions from text
     const mentions = (text.match(/@(\w+)/g) || []).map(m => m.slice(1));
-
     post.comments.push({ text, userName, userId: userId || null, mentions, likes: [], replies: [] });
     await post.save();
-
     if (post.userId && post.userId.toString() !== userId) {
       const notif = await Notification.create({ recipientId: post.userId, senderId: userId || null, senderName: userName || "Someone", type: "comment", postId: post._id, postTitle: post.title });
       io.to(`user:${post.userId}`).emit("newNotification", notif);
@@ -394,7 +462,6 @@ app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Like a comment ────────────────────────────────────────────────────────────
 app.put("/posts/:id/comments/:commentId/like", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.body;
@@ -402,18 +469,13 @@ app.put("/posts/:id/comments/:commentId/like", authMiddleware, async (req, res) 
     if (!post) return res.status(404).json({ message: "Post not found" });
     const comment = post.comments.id(req.params.commentId);
     if (!comment) return res.status(404).json({ message: "Comment not found" });
-
     const already = comment.likes.some(id => id.toString() === userId);
-    comment.likes = already
-      ? comment.likes.filter(id => id.toString() !== userId)
-      : [...comment.likes, userId];
-
+    comment.likes = already ? comment.likes.filter(id => id.toString() !== userId) : [...comment.likes, userId];
     await post.save();
     res.json(post);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Reply to a comment ────────────────────────────────────────────────────────
 app.post("/posts/:id/comments/:commentId/reply", authMiddleware, async (req, res) => {
   try {
     const { text, userName, userId } = req.body;
@@ -421,12 +483,9 @@ app.post("/posts/:id/comments/:commentId/reply", authMiddleware, async (req, res
     if (!post) return res.status(404).json({ message: "Post not found" });
     const comment = post.comments.id(req.params.commentId);
     if (!comment) return res.status(404).json({ message: "Comment not found" });
-
     const mentions = (text.match(/@(\w+)/g) || []).map(m => m.slice(1));
     comment.replies.push({ text, userName, userId: userId || null, mentions, likes: [] });
     await post.save();
-
-    // Notify the original commenter
     if (comment.userId && comment.userId.toString() !== userId) {
       const notif = await Notification.create({ recipientId: comment.userId, senderId: userId || null, senderName: userName || "Someone", type: "comment", postId: post._id, postTitle: post.title });
       io.to(`user:${comment.userId}`).emit("newNotification", notif);
@@ -435,7 +494,6 @@ app.post("/posts/:id/comments/:commentId/reply", authMiddleware, async (req, res
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Like a reply ──────────────────────────────────────────────────────────────
 app.put("/posts/:id/comments/:commentId/replies/:replyId/like", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.body;
@@ -445,12 +503,8 @@ app.put("/posts/:id/comments/:commentId/replies/:replyId/like", authMiddleware, 
     if (!comment) return res.status(404).json({ message: "Comment not found" });
     const reply   = comment.replies.id(req.params.replyId);
     if (!reply)   return res.status(404).json({ message: "Reply not found" });
-
     const already = reply.likes.some(id => id.toString() === userId);
-    reply.likes = already
-      ? reply.likes.filter(id => id.toString() !== userId)
-      : [...reply.likes, userId];
-
+    reply.likes = already ? reply.likes.filter(id => id.toString() !== userId) : [...reply.likes, userId];
     await post.save();
     res.json(post);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -491,79 +545,36 @@ app.post("/posts/:id/report", authMiddleware, async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// DM / CHAT ROUTES
+// POLL VOTING
+// PUT /posts/:id/poll/:optionId  — toggle vote on a poll option
+// One user can only vote on ONE option per poll (switching is allowed)
 // ═════════════════════════════════════════════════════════════════════════════
 
-// GET /conversations/:userId — list all users this person has chatted with
-app.get("/conversations/:userId", authMiddleware, async (req, res) => {
+app.put("/posts/:id/poll/:optionId", authMiddleware, async (req, res) => {
   try {
-    const uid = req.params.userId;
-    // Find all messages where user is sender or receiver
-    const messages = await Message.find({
-      $or: [{ senderId: uid }, { receiverId: uid }],
-    }).sort({ createdAt: -1 });
+    const { userId } = req.body;
+    const post = await Post.findById(req.params.id);
+    if (!post || !post.isPoll) return res.status(404).json({ message: "Poll not found" });
 
-    // Build unique conversation partner list with latest message
-    const seen = new Map();
-    for (const msg of messages) {
-      const otherId = msg.senderId.toString() === uid ? msg.receiverId.toString() : msg.senderId.toString();
-      if (!seen.has(otherId)) seen.set(otherId, msg);
+    // Check if poll has expired
+    if (post.pollEndsAt && new Date() > new Date(post.pollEndsAt)) {
+      return res.status(400).json({ message: "Poll has ended" });
     }
 
-    // Fetch partner names
-    const partnerIds  = [...seen.keys()];
-    const partnerUsers = await User.find({ _id: { $in: partnerIds } }).select("name area badges");
+    // Remove user's vote from ALL options first (handles switching)
+    for (const opt of post.pollOptions) {
+      opt.votes = opt.votes.filter(id => id.toString() !== userId);
+    }
 
-    const conversations = partnerUsers.map(u => ({
-      userId:      u._id,
-      name:        u.name,
-      area:        u.area,
-      badges:      u.badges || [],
-      lastMessage: seen.get(u._id.toString()),
-      unread:      messages.filter(m => m.senderId.toString() === u._id.toString() && m.receiverId.toString() === uid && !m.read).length,
-    }));
+    // Find the target option and toggle vote
+    const targetOption = post.pollOptions.id(req.params.optionId);
+    if (!targetOption) return res.status(404).json({ message: "Option not found" });
 
-    res.json(conversations);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    // Add vote (we already removed it above, so just push)
+    targetOption.votes.push(userId);
 
-// GET /messages/:userId/:otherId — fetch chat history between two users
-app.get("/messages/:userId/:otherId", authMiddleware, async (req, res) => {
-  try {
-    const { userId, otherId } = req.params;
-    const messages = await Message.find({
-      $or: [
-        { senderId: userId, receiverId: otherId },
-        { senderId: otherId, receiverId: userId },
-      ],
-    }).sort({ createdAt: 1 }).limit(100);
-
-    // Mark messages as read
-    await Message.updateMany(
-      { senderId: otherId, receiverId: userId, read: false },
-      { read: true }
-    );
-
-    res.json(messages);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// POST /messages — send a DM
-app.post("/messages", authMiddleware, async (req, res) => {
-  try {
-    const { receiverId, text } = req.body;
-    if (!receiverId || !text?.trim()) return res.status(400).json({ message: "receiverId and text required" });
-
-    const msg = await Message.create({ senderId: req.userId, receiverId, text: text.trim() });
-
-    // Emit to both sides via the shared conversation room
-    const room = [req.userId, receiverId].sort().join("_");
-    io.to(`chat:${room}`).emit("newMessage", msg);
-
-    // Also emit to receiver's personal room so they get a notification dot
-    io.to(`user:${receiverId}`).emit("newDM", { from: req.userId, message: msg });
-
-    res.json(msg);
+    await post.save();
+    res.json(post);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -652,6 +663,54 @@ app.get("/notifications/:userId", authMiddleware, async (req, res) => {
 app.put("/notifications/:userId/read", authMiddleware, async (req, res) => {
   try { await Notification.updateMany({ recipientId: req.params.userId }, { read: true }); res.json({ message: "Marked as read" }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DM / CHAT
+// ═════════════════════════════════════════════════════════════════════════════
+
+app.get("/conversations/:userId", authMiddleware, async (req, res) => {
+  try {
+    const uid = req.params.userId;
+    const messages = await Message.find({ $or: [{ senderId: uid }, { receiverId: uid }] }).sort({ createdAt: -1 });
+    const seen = new Map();
+    for (const msg of messages) {
+      const otherId = msg.senderId.toString() === uid ? msg.receiverId.toString() : msg.senderId.toString();
+      if (!seen.has(otherId)) seen.set(otherId, msg);
+    }
+    const partnerIds   = [...seen.keys()];
+    const partnerUsers = await User.find({ _id: { $in: partnerIds } }).select("name area badges");
+    const conversations = partnerUsers.map(u => ({
+      userId:      u._id,
+      name:        u.name,
+      area:        u.area,
+      badges:      u.badges || [],
+      lastMessage: seen.get(u._id.toString()),
+      unread:      messages.filter(m => m.senderId.toString() === u._id.toString() && m.receiverId.toString() === uid && !m.read).length,
+    }));
+    res.json(conversations);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/messages/:userId/:otherId", authMiddleware, async (req, res) => {
+  try {
+    const { userId, otherId } = req.params;
+    const messages = await Message.find({ $or: [{ senderId: userId, receiverId: otherId }, { senderId: otherId, receiverId: userId }] }).sort({ createdAt: 1 }).limit(100);
+    await Message.updateMany({ senderId: otherId, receiverId: userId, read: false }, { read: true });
+    res.json(messages);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/messages", authMiddleware, async (req, res) => {
+  try {
+    const { receiverId, text } = req.body;
+    if (!receiverId || !text?.trim()) return res.status(400).json({ message: "receiverId and text required" });
+    const msg  = await Message.create({ senderId: req.userId, receiverId, text: text.trim() });
+    const room = [req.userId, receiverId].sort().join("_");
+    io.to(`chat:${room}`).emit("newMessage", msg);
+    io.to(`user:${receiverId}`).emit("newDM", { from: req.userId, message: msg });
+    res.json(msg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

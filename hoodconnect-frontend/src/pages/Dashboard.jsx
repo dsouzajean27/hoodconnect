@@ -7,6 +7,7 @@ import {
   MapPin, Bell, LogOut, Plus, ChevronRight, X,
   Camera, Image, Video, Navigation, ZoomIn,
   Home, Search, Flag, MessageCircle, Heart, Reply,
+  BarChart2, Radar,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import logo from "../assets/logo.png";
@@ -37,7 +38,6 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// ── Badge metadata ────────────────────────────────────────────────────────────
 const BADGE_META = {
   verified_citizen:   { emoji: "🛡️", label: "Verified Citizen",    color: "bg-blue-100 text-blue-700 border-blue-200" },
   first_responder:    { emoji: "🚨", label: "First Responder",     color: "bg-red-100 text-red-700 border-red-200" },
@@ -62,10 +62,8 @@ function mapsUrl(lat, lng, label) {
   return null;
 }
 
-// ── Parse @mentions and highlight them ───────────────────────────────────────
 function renderWithMentions(text) {
-  const parts = text.split(/(@\w+)/g);
-  return parts.map((part, i) =>
+  return (text || "").split(/(@\w+)/g).map((part, i) =>
     part.startsWith("@")
       ? <span key={i} className="text-purple-600 font-semibold">{part}</span>
       : part
@@ -103,21 +101,29 @@ export default function Dashboard() {
   const [alertUsers, setAlertUsers] = useState(false);
   const [severity, setSeverity]     = useState("low");
 
-  const [emergencyPost, setEmergencyPost]   = useState(null);
-  // ── Emergency broadcast banner (separate from popup) ──────────────────────
+  const [emergencyPost, setEmergencyPost]     = useState(null);
   const [emergencyBanner, setEmergencyBanner] = useState(null);
 
   const [commentText, setCommentText]   = useState({});
   const [openComments, setOpenComments] = useState({});
-  // replyTarget: { postId, commentId, userName } — which comment we're replying to
   const [replyTarget, setReplyTarget]   = useState(null);
   const [replyText, setReplyText]       = useState({});
 
   const [lightbox, setLightbox] = useState(null);
 
-  const [bookmarks, setBookmarks]       = useState(new Set());
-  const [leaderboard, setLeaderboard]   = useState([]);
+  const [bookmarks, setBookmarks]         = useState(new Set());
+  const [leaderboard, setLeaderboard]     = useState([]);
   const [showBookmarks, setShowBookmarks] = useState(false);
+
+  // ── Poll state ────────────────────────────────────────────────────────────
+  const [isPoll, setIsPoll]               = useState(false);
+  const [pollOptions, setPollOptions]     = useState(["", ""]);  // min 2 options
+  const [pollEndsAt, setPollEndsAt]       = useState("");        // datetime-local string
+
+  // ── Area Discovery state ──────────────────────────────────────────────────
+  const [showAreaDiscovery, setShowAreaDiscovery] = useState(false);
+  const [nearbyAreas, setNearbyAreas]             = useState([]);
+  const [areaDetecting, setAreaDetecting]         = useState(false);
 
   // Camera state
   const [showCamera, setShowCamera]         = useState(false);
@@ -182,6 +188,42 @@ export default function Dashboard() {
     } catch (err) { console.log("fetchNotifications:", err); }
   };
 
+  // ── Area Discovery: detect nearby areas via GPS ───────────────────────────
+  const detectNearbyAreas = () => {
+    setAreaDetecting(true);
+    setShowAreaDiscovery(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setLatitude(lat); setLongitude(lng);
+        try {
+          const res = await axios.get(`${BASE_URL}/areas/nearby?lat=${lat}&lng=${lng}&radius=25`);
+          setNearbyAreas(res.data);
+        } catch (err) {
+          console.log("detectNearbyAreas:", err);
+          setNearbyAreas([]);
+        }
+        setAreaDetecting(false);
+      },
+      (err) => {
+        console.log("GPS error:", err);
+        setAreaDetecting(false);
+        alert("Location access denied. Please enable GPS to detect nearby areas.");
+        setShowAreaDiscovery(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const switchToArea = (areaName) => {
+    const updatedUser = { ...user, area: areaName };
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+    setUser(updatedUser);
+    if (socketRef.current) socketRef.current.emit("joinRoom", { area: areaName });
+    setShowAreaDiscovery(false);
+    setNearbyAreas([]);
+  };
+
   // ── Socket ────────────────────────────────────────────────────────────────
   useEffect(() => {
     socketRef.current = io(BASE_URL, { transports: ["websocket"] });
@@ -192,18 +234,12 @@ export default function Dashboard() {
     socketRef.current.on("newNotification", (notif) => {
       setNotifications(prev => prev.some(n => n._id === notif._id) ? prev : [notif, ...prev]);
     });
-
     socketRef.current.on("newPost", (post) => setPosts(prev => [post, ...prev]));
-
-    // ── Emergency broadcast handler ───────────────────────────────────────
     socketRef.current.on("emergencyBroadcast", (data) => {
       setEmergencyBanner(data);
       playEmergencySound();
-      // Auto-dismiss after 15 seconds
       setTimeout(() => setEmergencyBanner(null), 15000);
     });
-
-    // DM unread dot
     socketRef.current.on("newDM", () => setDmUnread(prev => prev + 1));
 
     return () => socketRef.current.disconnect();
@@ -229,7 +265,6 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // ── Emergency alert popup (for alert:true posts) ──────────────────────────
   useEffect(() => {
     posts.forEach(post => {
       const isRecent = new Date() - new Date(post.createdAt) < 24*60*60*1000;
@@ -329,7 +364,7 @@ export default function Dashboard() {
     if (!cameraStream) return;
     const chunks = [], mr = new MediaRecorder(cameraStream, { mimeType: "video/webm" });
     mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-    mr.onstop = () => { const blob = new Blob(chunks, { type: "video/webm" }); const url = URL.createObjectURL(blob); setCapturedPhoto(url); setCapturedBlob(blob); setGeotagged(true); stopCamera(); };
+    mr.onstop = () => { const blob = new Blob(chunks, { type: "video/webm" }); setCapturedPhoto(URL.createObjectURL(blob)); setCapturedBlob(blob); setGeotagged(true); stopCamera(); };
     mr.start(); mediaRecRef.current = mr; setIsRecording(true);
   };
   const stopRecording = () => { mediaRecRef.current?.stop(); setIsRecording(false); };
@@ -342,24 +377,43 @@ export default function Dashboard() {
   };
 
   // ── Post handlers ─────────────────────────────────────────────────────────
+  // FIX: removed the duplicate formData.append bug from last version
   const handlePost = async () => {
     try {
       const formData = new FormData();
-      ["title","content"].forEach(k => formData.append(k, { title, content }[k]));
-      formData.append("title", title); formData.append("content", content);
-      formData.append("location", location || "Unknown"); formData.append("latitude", latitude || ""); formData.append("longitude", longitude || "");
-      formData.append("type", type === "all" ? "casual" : type); formData.append("area", user?.area || "unknown");
-      formData.append("userId", user?.id); formData.append("userName", user?.name || "Unknown");
-      formData.append("anonymous", String(anonymous)); formData.append("alert", String(alertUsers)); formData.append("severity", severity);
+      formData.append("title",     title);
+      formData.append("content",   content);
+      formData.append("location",  location || "Unknown");
+      formData.append("latitude",  latitude || "");
+      formData.append("longitude", longitude || "");
+      formData.append("type",      type === "all" ? "casual" : type);
+      formData.append("area",      user?.area || "unknown");
+      formData.append("userId",    user?.id);
+      formData.append("userName",  user?.name || "Unknown");
+      formData.append("anonymous", String(anonymous));
+      formData.append("alert",     String(alertUsers));
+      formData.append("severity",  severity);
       formData.append("geotagged", String(geotagged));
-      if (captureLat)     formData.append("captureLat", captureLat);
-      if (captureLng)     formData.append("captureLng", captureLng);
+      if (captureLat)     formData.append("captureLat",     captureLat);
+      if (captureLng)     formData.append("captureLng",     captureLng);
       if (captureAddress) formData.append("captureAddress", captureAddress);
+      // Poll fields
+      formData.append("isPoll", String(isPoll));
+      if (isPoll) {
+        const validOpts = pollOptions.filter(o => o.trim());
+        formData.append("pollOptions", JSON.stringify(validOpts));
+        if (pollEndsAt) formData.append("pollEndsAt", pollEndsAt);
+      }
       if (image) formData.append("image", image);
       if (video) formData.append("video", video);
+
       await axios.post(`${BASE_URL}/posts`, formData, { headers: { ...authHeaders() } });
-      setTitle(""); setContent(""); setLocation(""); setImage(null); setVideo(null); setImagePreview(null);
-      setAnonymous(false); setAlertUsers(false); setGeotagged(false); setCaptureLat(null); setCaptureLng(null); setCaptureAddress(null);
+
+      // Reset all post form state
+      setTitle(""); setContent(""); setLocation(""); setImage(null); setVideo(null);
+      setImagePreview(null); setAnonymous(false); setAlertUsers(false);
+      setGeotagged(false); setCaptureLat(null); setCaptureLng(null); setCaptureAddress(null);
+      setIsPoll(false); setPollOptions(["", ""]); setPollEndsAt("");
       fetchPosts();
     } catch (err) { console.log("handlePost:", err); }
   };
@@ -369,8 +423,24 @@ export default function Dashboard() {
   const handleLike     = async id => { try { await axios.put(`${BASE_URL}/posts/${id}/like`, { userId: user?.id }, { headers: authHeaders() }); fetchPosts(); } catch {} };
   const handleTrust    = async (id, t) => { try { await axios.put(`${BASE_URL}/posts/${id}/trust`, { userId: user?.id, type: t }, { headers: authHeaders() }); fetchPosts(); } catch {} };
   const handleBookmark = async id => { try { const res = await axios.put(`${BASE_URL}/posts/${id}/bookmark`, {}, { headers: authHeaders() }); setBookmarks(new Set(res.data.bookmarks.map(i => i.toString()))); } catch {} };
-  const handleReport   = async id => { if (!window.confirm("Report this post?")) return; try { await axios.post(`${BASE_URL}/posts/${id}/report`, { userId: user?.id }, { headers: authHeaders() }); alert("Reported. Our team will review it."); } catch {} };
+  const handleReport   = async id => { if (!window.confirm("Report this post?")) return; try { await axios.post(`${BASE_URL}/posts/${id}/report`, { userId: user?.id }, { headers: authHeaders() }); alert("Reported."); } catch {} };
   const handleLogout   = () => { localStorage.removeItem("user"); localStorage.removeItem("token"); navigate("/"); };
+
+  // ── Poll vote ─────────────────────────────────────────────────────────────
+  const handlePollVote = async (postId, optionId) => {
+    try {
+      await axios.put(`${BASE_URL}/posts/${postId}/poll/${optionId}`, { userId: user?.id }, { headers: authHeaders() });
+      fetchPosts();
+    } catch (err) { console.log("handlePollVote:", err); }
+  };
+
+  // Helper: total votes in a poll
+  const totalPollVotes = (post) =>
+    (post.pollOptions || []).reduce((sum, opt) => sum + (opt.votes?.length || 0), 0);
+
+  // Helper: has current user voted on this option
+  const userVotedOption = (post) =>
+    (post.pollOptions || []).find(opt => opt.votes?.some(id => id === user?.id || id?.toString() === user?.id))?._id;
 
   // ── Comment handlers ──────────────────────────────────────────────────────
   const handleComment = async postId => {
@@ -378,8 +448,7 @@ export default function Dashboard() {
     if (!text?.trim()) return;
     try {
       await axios.post(`${BASE_URL}/posts/${postId}/comment`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() });
-      setCommentText({ ...commentText, [postId]: "" });
-      fetchPosts();
+      setCommentText({ ...commentText, [postId]: "" }); fetchPosts();
     } catch {}
   };
 
@@ -392,18 +461,27 @@ export default function Dashboard() {
     if (!text?.trim()) return;
     try {
       await axios.post(`${BASE_URL}/posts/${postId}/comments/${commentId}/reply`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() });
-      setReplyText({ ...replyText, [commentId]: "" });
-      setReplyTarget(null);
-      fetchPosts();
+      setReplyText({ ...replyText, [commentId]: "" }); setReplyTarget(null); fetchPosts();
     } catch {}
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // ── Poll option editor helpers ────────────────────────────────────────────
+  const updatePollOption = (i, val) => {
+    const copy = [...pollOptions]; copy[i] = val; setPollOptions(copy);
+  };
+  const addPollOption = () => {
+    if (pollOptions.length < 6) setPollOptions([...pollOptions, ""]);
+  };
+  const removePollOption = (i) => {
+    if (pollOptions.length > 2) setPollOptions(pollOptions.filter((_, idx) => idx !== i));
+  };
+
   return (
     <div className="min-h-screen bg-[#f0f2f8] flex flex-col">
 
-      {/* ── EMERGENCY BROADCAST BANNER ── */}
+      {/* EMERGENCY BROADCAST BANNER */}
       {emergencyBanner && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-gradient-to-r from-red-600 to-rose-700 text-white px-4 py-3 flex items-center gap-3 shadow-2xl animate-pulse">
           <div className="text-2xl shrink-0">🚨</div>
@@ -413,9 +491,7 @@ export default function Dashboard() {
           </div>
           {emergencyBanner.lat && (
             <a href={`https://www.google.com/maps?q=${emergencyBanner.lat},${emergencyBanner.lng}`} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-xl transition font-semibold">
-              Maps
-            </a>
+              className="shrink-0 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-xl transition font-semibold">Maps</a>
           )}
           <button onClick={() => setEmergencyBanner(null)} className="shrink-0 p-1.5 rounded-lg hover:bg-white/20 transition"><X size={16}/></button>
         </div>
@@ -425,21 +501,25 @@ export default function Dashboard() {
       <header className={`sticky z-30 bg-white border-b border-gray-200 shadow-sm ${emergencyBanner ? "top-[60px]" : "top-0"}`}>
         <div className="flex items-center gap-2 md:gap-4 px-3 md:px-5 py-3">
           <div className="flex items-center gap-2 shrink-0">
-            <img src={logo} alt="logo" className="w-8 h-8 object-contain" />
+            <img src={logo} alt="logo" className="w-8 h-8 object-contain"/>
             <span className="text-lg md:text-xl font-black tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">HOODCONNECT</span>
           </div>
           <div className="hidden md:block flex-1 max-w-lg mx-auto">
             <input className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
-              placeholder="Search posts, locations..." value={search} onChange={e => setSearch(e.target.value)} />
+              placeholder="Search posts, locations..." value={search} onChange={e => setSearch(e.target.value)}/>
           </div>
           <div className="flex items-center gap-1.5 md:gap-2 shrink-0 ml-auto md:ml-0">
             <button onClick={() => setShowSearch(!showSearch)} className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition"><Search size={17}/></button>
 
+            {/* Area Discovery button */}
+            <button onClick={detectNearbyAreas} title="Discover nearby areas"
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition">
+              <Radar size={17}/>
+            </button>
+
             {/* DM button */}
-            <button
-              onClick={() => { setDmUnread(0); navigate("/chat"); }}
-              className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 transition"
-            >
+            <button onClick={() => { setDmUnread(0); navigate("/chat"); }}
+              className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 transition">
               <MessageCircle size={18}/>
               {dmUnread > 0 && <span className="absolute -top-1 -right-1 bg-purple-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{dmUnread}</span>}
             </button>
@@ -454,8 +534,7 @@ export default function Dashboard() {
                     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
                   }
                 }}
-                className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-600 transition"
-              >
+                className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-600 transition">
                 <Bell size={18}/>
                 {unreadCount > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{unreadCount}</span>}
               </button>
@@ -463,7 +542,7 @@ export default function Dashboard() {
                 <div className="absolute right-0 top-11 w-72 md:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                     <span className="font-semibold text-gray-800 text-sm">Notifications</span>
-                    <button onClick={() => setShowNotifications(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+                    <button onClick={() => setShowNotifications(false)}><X size={14} className="text-gray-400"/></button>
                   </div>
                   {notifications.length === 0
                     ? <p className="p-5 text-sm text-gray-400 text-center">You're all caught up 🎉</p>
@@ -485,8 +564,8 @@ export default function Dashboard() {
         </div>
         {showSearch && (
           <div className="md:hidden px-3 pb-2">
-            <input autoFocus className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
-              placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+            <input autoFocus className="w-full px-4 py-2 rounded-xl bg-gray-100 border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+              placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)}/>
           </div>
         )}
       </header>
@@ -500,6 +579,7 @@ export default function Dashboard() {
           {[
             { action: () => { setNearMe(!nearMe); getLocation(); }, active: nearMe, icon: <MapPin size={16} className={nearMe?"text-white":"text-purple-500"}/>, label: "Near Me" },
             { action: () => setShowBookmarks(!showBookmarks), active: showBookmarks, icon: showBookmarks?<BookmarkCheck size={16} className="text-white"/>:<Bookmark size={16} className="text-purple-500"/>, label: "Saved" },
+            { action: detectNearbyAreas, active: false, icon: <Radar size={16} className="text-emerald-500"/>, label: "Discover" },
           ].map((item, i) => (
             <button key={i} onClick={item.action}
               className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition ${item.active?"bg-purple-600 text-white":"hover:bg-gray-100 text-gray-600"}`}>
@@ -578,12 +658,12 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${TAG[post.type]||"bg-gray-100 text-gray-500"}`}>{TYPE_ICON[post.type]} {post.type}</span>
                       {post.geotagged && <span className="text-[10px] bg-green-100 text-green-600 border border-green-200 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-0.5"><Navigation size={9}/> Geotagged</span>}
+                      {post.isPoll && <span className="text-[10px] bg-indigo-100 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-0.5"><BarChart2 size={9}/> Poll</span>}
                       <span className="text-[11px] text-gray-400">{new Date(post.createdAt).toLocaleDateString()} · {new Date(post.createdAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {/* DM button on post author */}
                   {post.userId && post.userId !== user?.id && (
                     <button onClick={() => navigate(`/chat/${post.userId}`)} title="Send DM" className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-300 hover:text-blue-500 transition"><MessageCircle size={14}/></button>
                   )}
@@ -618,6 +698,59 @@ export default function Dashboard() {
                 <h3 className="font-bold text-gray-900 text-base leading-snug">{post.title}</h3>
                 <p className="text-sm text-gray-600 mt-1 leading-relaxed">{post.content}</p>
               </div>
+
+              {/* ── POLL DISPLAY ── */}
+              {post.isPoll && post.pollOptions?.length > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <BarChart2 size={14} className="text-indigo-500"/>
+                      <span className="text-xs font-bold text-indigo-700">Community Poll · {totalPollVotes(post)} vote{totalPollVotes(post) !== 1 ? "s" : ""}</span>
+                      {post.pollEndsAt && new Date() < new Date(post.pollEndsAt) && (
+                        <span className="ml-auto text-[10px] text-indigo-400">Ends {new Date(post.pollEndsAt).toLocaleDateString()}</span>
+                      )}
+                      {post.pollEndsAt && new Date() >= new Date(post.pollEndsAt) && (
+                        <span className="ml-auto text-[10px] bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full font-semibold">Ended</span>
+                      )}
+                    </div>
+
+                    {post.pollOptions.map(opt => {
+                      const total     = totalPollVotes(post);
+                      const pct       = total > 0 ? Math.round((opt.votes?.length || 0) / total * 100) : 0;
+                      const myVoteId  = userVotedOption(post);
+                      const isMyVote  = myVoteId?.toString() === opt._id?.toString();
+                      const pollEnded = post.pollEndsAt && new Date() >= new Date(post.pollEndsAt);
+
+                      return (
+                        <button
+                          key={opt._id}
+                          onClick={() => !pollEnded && handlePollVote(post._id, opt._id)}
+                          disabled={pollEnded}
+                          className={`w-full text-left rounded-xl overflow-hidden border transition ${
+                            isMyVote
+                              ? "border-indigo-400 bg-indigo-100"
+                              : "border-gray-200 bg-white hover:border-indigo-300"
+                          } ${pollEnded ? "cursor-default" : "cursor-pointer"}`}
+                        >
+                          <div className="relative px-3 py-2">
+                            {/* Progress bar behind */}
+                            <div
+                              className={`absolute inset-y-0 left-0 rounded-xl transition-all duration-500 ${isMyVote?"bg-indigo-200":"bg-gray-100"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                            <div className="relative flex items-center justify-between">
+                              <span className={`text-xs font-medium ${isMyVote?"text-indigo-800":"text-gray-700"}`}>
+                                {isMyVote && <span className="mr-1">✓</span>}{opt.text}
+                              </span>
+                              <span className={`text-xs font-bold ${isMyVote?"text-indigo-700":"text-gray-500"}`}>{pct}%</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Media */}
               {post.image && (
@@ -670,10 +803,9 @@ export default function Dashboard() {
                 </>}
               </div>
 
-              {/* ── UPGRADED COMMENTS SECTION ── */}
+              {/* UPGRADED COMMENTS */}
               {openComments[post._id] && (
                 <div className="px-4 pb-4 pt-2 bg-gray-50 border-t border-gray-100">
-                  {/* Comments list */}
                   {post.comments?.length > 0 && (
                     <div className="mb-3 space-y-3">
                       {post.comments.map(c => (
@@ -687,7 +819,6 @@ export default function Dashboard() {
                               <span className="font-semibold text-purple-600 cursor-pointer mr-1" onClick={() => c.userId && navigate(`/profile/${c.userId}`)}>{c.userName}</span>
                               {renderWithMentions(c.text)}
                             </div>
-                            {/* Comment actions */}
                             <div className="flex items-center gap-3 mt-1 ml-1">
                               <button onClick={() => handleCommentLike(post._id, c._id)}
                                 className={`flex items-center gap-1 text-[10px] font-medium transition ${c.likes?.some(id=>id===user?.id||id?.toString()===user?.id)?"text-pink-500":"text-gray-400 hover:text-pink-500"}`}>
@@ -699,26 +830,18 @@ export default function Dashboard() {
                               </button>
                               <span className="text-[10px] text-gray-300">{new Date(c.createdAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
                             </div>
-
-                            {/* Reply input */}
                             {replyTarget?.commentId === c._id && (
                               <div className="flex gap-2 mt-2 ml-1">
-                                <input
-                                  autoFocus
-                                  className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-purple-200 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                                <input autoFocus
+                                  className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-purple-200 text-xs placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                                   placeholder={`Reply to @${c.userName}...`}
                                   value={replyText[c._id]||""}
                                   onChange={e => setReplyText({...replyText,[c._id]:e.target.value})}
                                   onKeyDown={e => e.key==="Enter" && handleReply(post._id, c._id)}
                                 />
-                                <button onClick={() => handleReply(post._id, c._id)}
-                                  className="px-3 py-1.5 rounded-xl bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition">
-                                  Reply
-                                </button>
+                                <button onClick={() => handleReply(post._id, c._id)} className="px-3 py-1.5 rounded-xl bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition">Reply</button>
                               </div>
                             )}
-
-                            {/* Nested replies */}
                             {c.replies?.length > 0 && (
                               <div className="mt-2 ml-2 space-y-2 border-l-2 border-purple-100 pl-3">
                                 {c.replies.map(r => (
@@ -749,11 +872,9 @@ export default function Dashboard() {
                       ))}
                     </div>
                   )}
-
-                  {/* New comment input */}
                   <div className="flex gap-2">
                     <input
-                      className="flex-1 px-3 py-2 rounded-xl bg-white border border-gray-200 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                      className="flex-1 px-3 py-2 rounded-xl bg-white border border-gray-200 text-xs placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                       placeholder="Write a comment... (use @name to mention)"
                       value={commentText[post._id]||""}
                       onChange={e => setCommentText({...commentText,[post._id]:e.target.value})}
@@ -779,14 +900,12 @@ export default function Dashboard() {
                 <span className="font-bold text-gray-800 text-sm">{user?.name||"Unknown"}</span>
                 {user?.verified && <span className="text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold">✓</span>}
               </div>
-              {/* Aadhaar status */}
               {user?.aadhaarStatus==="pending"  && <span className="mt-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold">🕐 ID Review Pending</span>}
               {user?.aadhaarStatus==="verified" && <span className="mt-1 text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-semibold">🛡️ ID Verified</span>}
               {user?.aadhaarStatus==="rejected" && <span className="mt-1 text-[10px] bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-semibold">❌ ID Rejected</span>}
-              {/* Badges in sidebar */}
               {user?.badges?.length > 0 && (
                 <div className="flex flex-wrap gap-1 justify-center mt-2">
-                  {user.badges.map(b => (
+                  {user.badges.map(b=>(
                     <span key={b} title={BADGE_META[b]?.label} className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${BADGE_META[b]?.color}`}>
                       {BADGE_META[b]?.emoji} {BADGE_META[b]?.label}
                     </span>
@@ -799,7 +918,12 @@ export default function Dashboard() {
                 onChange={e => { const a=e.target.value; const u={...user,area:a}; localStorage.setItem("user",JSON.stringify(u)); setUser(u); if(socketRef.current)socketRef.current.emit("joinRoom",{area:a}); }}>
                 {areas.map(a=><option key={a._id} value={a.name}>{a.name.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</option>)}
               </select>
-              <button onClick={() => user?.id && navigate(`/profile/${user.id}`)} className="mt-3 w-full flex items-center justify-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium transition py-1.5 rounded-lg hover:bg-purple-50">
+              {/* Discover button in sidebar */}
+              <button onClick={detectNearbyAreas}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-800 font-medium transition py-1.5 rounded-lg hover:bg-emerald-50 border border-emerald-200">
+                <Radar size={12}/> Discover Nearby Areas
+              </button>
+              <button onClick={() => user?.id && navigate(`/profile/${user.id}`)} className="mt-1 w-full flex items-center justify-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium transition py-1.5 rounded-lg hover:bg-purple-50">
                 View Profile<ChevronRight size={12}/>
               </button>
               <button onClick={() => navigate("/chat")} className="mt-1 w-full flex items-center justify-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition py-1.5 rounded-lg hover:bg-blue-50">
@@ -847,9 +971,85 @@ export default function Dashboard() {
         <div className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4" onClick={()=>setLightbox(null)}>
           <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition" onClick={()=>setLightbox(null)}><X size={20}/></button>
           <div onClick={e=>e.stopPropagation()}>
-            {lightbox.type==="image"
-              ?<img src={lightbox.src} className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl" alt="full view"/>
+            {lightbox.type==="image"?<img src={lightbox.src} className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl" alt="full view"/>
               :<video src={lightbox.src} controls autoPlay className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl"/>}
+          </div>
+        </div>
+      )}
+
+      {/* ── AREA DISCOVERY MODAL ── */}
+      {showAreaDiscovery && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-600 to-teal-600">
+              <div className="flex items-center gap-2">
+                <Radar size={18} className="text-white"/>
+                <h2 className="font-bold text-white text-base">Discover Nearby Areas</h2>
+              </div>
+              <button onClick={() => setShowAreaDiscovery(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition"><X size={14}/></button>
+            </div>
+
+            <div className="p-4">
+              {areaDetecting ? (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full border-4 border-emerald-200 border-t-emerald-600 animate-spin"/>
+                  <p className="text-sm text-gray-500">Detecting your location...</p>
+                </div>
+              ) : nearbyAreas.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  <MapPin size={32} className="mx-auto mb-2 opacity-30"/>
+                  <p>No nearby areas found</p>
+                  <p className="text-xs mt-1">Try expanding your search or add a new area</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-400 mb-3 font-medium">Areas with activity near you — tap to switch:</p>
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {nearbyAreas.map(a => (
+                      <button
+                        key={a.name}
+                        onClick={() => switchToArea(a.name)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition text-left ${
+                          user?.area === a.name
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                            : "bg-gray-50 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 text-gray-700"
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                          <MapPin size={14} className="text-emerald-600"/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm truncate">{a.label}</p>
+                          <p className="text-xs text-gray-400">{a.count} post{a.count !== 1?"s":""} · {a.distance} km away</p>
+                        </div>
+                        {user?.area === a.name && (
+                          <span className="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">Current</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Manual area input */}
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <p className="text-xs text-gray-400 mb-2 font-medium">Or enter area manually:</p>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+                    placeholder="e.g. Bandra, Juhu..."
+                    value={tempArea}
+                    onChange={e => setTempArea(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}
+                  />
+                  <button
+                    onClick={() => { if (tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition">
+                    Go
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -909,12 +1109,14 @@ export default function Dashboard() {
               <input className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
                 placeholder="Location (optional)" value={location} onChange={e=>setLocation(e.target.value)}/>
               <button onClick={getLocation} className="w-full py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition">📍 Use My Current Location</button>
+
               {geotagged&&captureAddress&&(
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-xs text-green-700">
                   <Navigation size={12}/><span className="truncate">Geotagged: {captureAddress}</span>
-                  <button onClick={()=>{setGeotagged(false);setCaptureAddress(null);}} className="ml-auto text-green-500 hover:text-green-800"><X size={12}/></button>
+                  <button onClick={()=>{setGeotagged(false);setCaptureAddress(null);}} className="ml-auto"><X size={12}/></button>
                 </div>
               )}
+
               <div className="grid grid-cols-2 gap-2">
                 <select className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
                   value={type==="all"?"casual":type} onChange={e=>setType(e.target.value)}>
@@ -926,10 +1128,48 @@ export default function Dashboard() {
                   <option value="low">🟢 Low</option><option value="medium">🟡 Medium</option><option value="high">🔴 High</option>
                 </select>
               </div>
-              <div className="flex gap-6">
+
+              <div className="flex gap-4 flex-wrap">
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" className="rounded accent-purple-600" checked={alertUsers} onChange={e=>setAlertUsers(e.target.checked)}/> 🔔 Alert users</label>
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" className="rounded accent-purple-600" checked={anonymous} onChange={e=>setAnonymous(e.target.checked)}/> 👤 Anonymous</label>
+                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <input type="checkbox" className="rounded accent-indigo-600" checked={isPoll} onChange={e=>setIsPoll(e.target.checked)}/> 
+                  <BarChart2 size={14} className="text-indigo-500"/> Add Poll
+                </label>
               </div>
+
+              {/* ── POLL BUILDER ── */}
+              {isPoll && (
+                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
+                  <p className="text-xs font-bold text-indigo-700 flex items-center gap-1"><BarChart2 size={12}/> Poll Options (2–6)</p>
+                  {pollOptions.map((opt, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        className="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition"
+                        placeholder={`Option ${i + 1}`}
+                        value={opt}
+                        onChange={e => updatePollOption(i, e.target.value)}
+                      />
+                      {pollOptions.length > 2 && (
+                        <button onClick={() => removePollOption(i)} className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 flex items-center justify-center transition shrink-0">
+                          <X size={12}/>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {pollOptions.length < 6 && (
+                    <button onClick={addPollOption} className="w-full py-1.5 rounded-xl border border-dashed border-indigo-300 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition">
+                      + Add Option
+                    </button>
+                  )}
+                  <div>
+                    <label className="text-xs text-indigo-600 font-medium">Poll ends at (optional)</label>
+                    <input type="datetime-local" className="w-full mt-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300 transition"
+                      value={pollEndsAt} onChange={e=>setPollEndsAt(e.target.value)}/>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={()=>{setShowModal(false);openCameraModal();}} className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-purple-300 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 transition font-medium"><Camera size={18}/> Camera</button>
                 <label className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-gray-300 text-xs text-gray-500 cursor-pointer hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition">
@@ -967,7 +1207,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* AREA MODAL */}
+      {/* AREA MODAL (first time) */}
       {showLocationModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-7 w-full max-w-xs text-center shadow-2xl">
@@ -976,15 +1216,21 @@ export default function Dashboard() {
             <p className="text-xs text-gray-400 mb-4">We'll show posts from your neighbourhood</p>
             <input className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 transition mb-3"
               placeholder="e.g. Andheri, Borivali, Majiwada" value={tempArea} onChange={e=>setTempArea(e.target.value)}/>
-            <button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm hover:from-blue-700 hover:to-purple-700 transition"
-              onClick={()=>{
-                if(!tempArea)return;
-                const f=tempArea.toLowerCase().replace(/\s/g,"-");
-                axios.post(`${BASE_URL}/areas`,{name:f},{headers:authHeaders()});
-                const u={...user,area:f}; localStorage.setItem("user",JSON.stringify(u)); setUser(u);
-                if(socketRef.current)socketRef.current.emit("joinRoom",{area:f});
-                setShowLocationModal(false);
-              }}>Let's Go →</button>
+            <div className="flex gap-2">
+              <button className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm hover:from-blue-700 hover:to-purple-700 transition"
+                onClick={()=>{
+                  if(!tempArea)return;
+                  const f=tempArea.toLowerCase().replace(/\s/g,"-");
+                  axios.post(`${BASE_URL}/areas`,{name:f},{headers:authHeaders()});
+                  const u={...user,area:f}; localStorage.setItem("user",JSON.stringify(u)); setUser(u);
+                  if(socketRef.current)socketRef.current.emit("joinRoom",{area:f});
+                  setShowLocationModal(false);
+                }}>Enter Manually</button>
+              <button className="flex-1 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition"
+                onClick={()=>{ setShowLocationModal(false); detectNearbyAreas(); }}>
+                <Radar size={13} className="inline mr-1"/>Detect
+              </button>
+            </div>
           </div>
         </div>
       )}

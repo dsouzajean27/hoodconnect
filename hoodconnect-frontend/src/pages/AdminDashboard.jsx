@@ -3,6 +3,7 @@ import axios from "axios";
 import {
   ShieldCheck, Users, AlertTriangle, CheckCircle,
   XCircle, Ban, AlertOctagon, LogOut, Eye,
+  BarChart2, Search, Filter, TrendingUp, RefreshCw,
 } from "lucide-react";
 
 const BASE_URL = "https://hoodconnect-backend.onrender.com";
@@ -11,16 +12,84 @@ function adminHeaders(secret) {
   return { Authorization: `Bearer ${secret}` };
 }
 
+// ── Pure-SVG bar chart (no external lib) ─────────────────────────────────────
+function BarChart({ data = [], color = "#8b5cf6", height = 80 }) {
+  if (!data.length) return <p className="text-xs text-gray-400 text-center py-6">No data yet</p>;
+  const max = Math.max(...data.map(d => d.count), 1);
+  return (
+    <div className="flex items-end gap-1.5" style={{ height }}>
+      {data.map((d, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-0.5 min-w-0">
+          <span className="text-[9px] text-gray-400 font-medium leading-none">{d.count}</span>
+          <div
+            className="w-full rounded-t transition-all"
+            style={{ height: `${Math.max((d.count / max) * (height - 20), 2)}px`, background: color }}
+          />
+          <span className="text-[8px] text-gray-400 truncate w-full text-center leading-none">
+            {(d._id || "").toString().slice(-5)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Pure-SVG donut chart ──────────────────────────────────────────────────────
+function DonutChart({ data = [] }) {
+  if (!data.length) return <p className="text-xs text-gray-400 text-center py-6">No data</p>;
+  const COLORS = { emergency:"#ef4444", event:"#f59e0b", casual:"#3b82f6", promotional:"#10b981" };
+  const total = data.reduce((s, d) => s + d.count, 0);
+  const size = 90, r = 28, cx = 45, cy = 45, circ = 2 * Math.PI * r;
+  let cum = 0;
+  return (
+    <div className="flex items-center gap-4">
+      <svg width={size} height={size} className="shrink-0">
+        {data.map((d, i) => {
+          const pct    = d.count / total;
+          const offset = circ * (1 - cum);
+          const dash   = circ * pct;
+          cum += pct;
+          return (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+              stroke={COLORS[d._id] || "#a78bfa"} strokeWidth="14"
+              strokeDasharray={`${dash} ${circ - dash}`} strokeDashoffset={offset}
+              transform={`rotate(-90 ${cx} ${cy})`}/>
+          );
+        })}
+        <text x={cx} y={cy + 4} textAnchor="middle" fill="#374151" fontSize="10" fontWeight="bold">{total}</text>
+      </svg>
+      <div className="space-y-1 min-w-0">
+        {data.map((d, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs text-gray-600 min-w-0">
+            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: COLORS[d._id] || "#a78bfa" }}/>
+            <span className="capitalize truncate">{d._id}</span>
+            <span className="text-gray-400 font-medium ml-auto pl-2 shrink-0">
+              {Math.round(d.count / total * 100)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [secret, setSecret]             = useState("");
   const [authed, setAuthed]             = useState(false);
   const [authError, setAuthError]       = useState("");
 
-  const [tab, setTab]                   = useState("aadhaar"); // "aadhaar" | "reported"
+  // NEW: analytics tab added alongside existing tabs
+  const [tab, setTab]                   = useState("aadhaar");
 
   const [pendingUsers, setPendingUsers] = useState([]);
   const [reportedUsers, setReportedUsers] = useState([]);
   const [reportedPosts, setReportedPosts] = useState([]);
+  const [analytics, setAnalytics]       = useState(null);   // NEW
+  const [areas, setAreas]               = useState([]);      // NEW
+
+  // NEW: search + area filter state
+  const [searchQ, setSearchQ]       = useState("");
+  const [areaFilter, setAreaFilter] = useState("");
 
   const [rejectReason, setRejectReason] = useState({});
   const [loading, setLoading]           = useState(false);
@@ -35,7 +104,6 @@ export default function AdminDashboard() {
   const handleLogin = async () => {
     setLoading(true);
     try {
-      // Try fetching pending users with this secret to validate it
       await axios.get(`${BASE_URL}/admin/aadhaar-pending`, { headers: adminHeaders(secret) });
       localStorage.setItem("adminSecret", secret);
       setAuthed(true);
@@ -47,10 +115,9 @@ export default function AdminDashboard() {
     }
   };
 
-  // Try restoring session
   useEffect(() => {
     const saved = localStorage.getItem("adminSecret");
-    if (saved) { setSecret(saved); }
+    if (saved) setSecret(saved);
   }, []);
 
   // ── Data fetchers ─────────────────────────────────────────────────────────
@@ -61,24 +128,51 @@ export default function AdminDashboard() {
     } catch (err) { console.log(err); }
   };
 
+  // NEW: pass search + area to reported endpoints
   const fetchReportedData = async () => {
     try {
+      const params = new URLSearchParams();
+      if (searchQ)    params.set("search", searchQ);
+      if (areaFilter) params.set("area",   areaFilter);
       const [usersRes, postsRes] = await Promise.all([
-        axios.get(`${BASE_URL}/admin/reported-users`, { headers: adminHeaders(secret) }),
-        axios.get(`${BASE_URL}/admin/reported-posts`, { headers: adminHeaders(secret) }),
+        axios.get(`${BASE_URL}/admin/reported-users?${params}`,  { headers: adminHeaders(secret) }),
+        axios.get(`${BASE_URL}/admin/reported-posts?${params}`,  { headers: adminHeaders(secret) }),
       ]);
       setReportedUsers(usersRes.data);
       setReportedPosts(postsRes.data);
     } catch (err) { console.log(err); }
   };
 
+  // NEW: fetch analytics
+  const fetchAnalytics = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/admin/analytics`, { headers: adminHeaders(secret) });
+      setAnalytics(res.data);
+    } catch (err) { console.log(err); }
+  };
+
+  // NEW: fetch areas for filter dropdown
+  const fetchAreas = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/areas`);
+      setAreas(res.data);
+    } catch {}
+  };
+
   useEffect(() => {
     if (!authed) return;
     fetchPendingUsers();
     fetchReportedData();
+    fetchAnalytics();   // NEW
+    fetchAreas();       // NEW
   }, [authed]);
 
-  // ── Aadhaar actions ───────────────────────────────────────────────────────
+  // Re-fetch reported when search/area filter changes
+  useEffect(() => {
+    if (authed) fetchReportedData();
+  }, [searchQ, areaFilter]);
+
+  // ── Aadhaar actions (unchanged) ───────────────────────────────────────────
   const approveAadhaar = async (userId) => {
     try {
       await axios.put(`${BASE_URL}/admin/aadhaar/${userId}/approve`, {}, { headers: adminHeaders(secret) });
@@ -96,7 +190,7 @@ export default function AdminDashboard() {
     } catch { showToast("Failed to reject", "error"); }
   };
 
-  // ── User moderation ───────────────────────────────────────────────────────
+  // ── User moderation (unchanged) ───────────────────────────────────────────
   const warnUser = async (userId) => {
     try {
       await axios.put(`${BASE_URL}/admin/users/${userId}/warn`, {}, { headers: adminHeaders(secret) });
@@ -114,7 +208,7 @@ export default function AdminDashboard() {
     } catch { showToast("Failed to ban", "error"); }
   };
 
-  // ── Reported post actions ─────────────────────────────────────────────────
+  // ── Post moderation (unchanged) ───────────────────────────────────────────
   const deletePost = async (postId) => {
     if (!window.confirm("Delete this post?")) return;
     try {
@@ -132,7 +226,7 @@ export default function AdminDashboard() {
     } catch { showToast("Failed to dismiss", "error"); }
   };
 
-  // ── Login screen ──────────────────────────────────────────────────────────
+  // ── Login screen (unchanged) ──────────────────────────────────────────────
   if (!authed) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-slate-800 flex items-center justify-center px-4">
@@ -163,10 +257,11 @@ export default function AdminDashboard() {
     );
   }
 
-  // ── Main dashboard ────────────────────────────────────────────────────────
+  // ── Summary stats ─────────────────────────────────────────────────────────
+  const S = analytics?.summary || {};
+
   return (
     <div className="min-h-screen bg-[#f0f2f8]">
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-2xl shadow-lg text-sm font-semibold text-white transition-all ${toast.type === "error" ? "bg-red-500" : "bg-green-500"}`}>
           {toast.msg}
@@ -184,24 +279,31 @@ export default function AdminDashboard() {
             <p className="text-xs text-gray-400">Moderation Dashboard</p>
           </div>
         </div>
-        <button
-          onClick={() => { localStorage.removeItem("adminSecret"); setAuthed(false); setSecret(""); }}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 text-sm font-medium transition"
-        >
-          <LogOut size={15} /> Logout
-        </button>
+        <div className="flex items-center gap-2">
+          {/* NEW: refresh button */}
+          <button onClick={() => { fetchPendingUsers(); fetchReportedData(); fetchAnalytics(); }}
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 transition" title="Refresh">
+            <RefreshCw size={16}/>
+          </button>
+          <button
+            onClick={() => { localStorage.removeItem("adminSecret"); setAuthed(false); setSecret(""); }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 text-sm font-medium transition"
+          >
+            <LogOut size={15} /> Logout
+          </button>
+        </div>
       </header>
 
-      {/* Stats row */}
+      {/* NEW: Summary stats row */}
       <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Pending Aadhaar", value: pendingUsers.length, color: "bg-amber-100 text-amber-700", icon: <Eye size={18}/> },
-          { label: "Reported Users",  value: reportedUsers.length, color: "bg-red-100 text-red-600",    icon: <AlertTriangle size={18}/> },
-          { label: "Reported Posts",  value: reportedPosts.length, color: "bg-orange-100 text-orange-600", icon: <AlertOctagon size={18}/> },
-          { label: "Total Reviews",   value: pendingUsers.length + reportedUsers.length + reportedPosts.length, color: "bg-purple-100 text-purple-600", icon: <Users size={18}/> },
-        ].map((stat) => (
+          { label: "Total Users",    value: S.totalUsers    || 0, color: "bg-blue-100 text-blue-700",    icon: <Users size={18}/> },
+          { label: "Total Posts",    value: S.totalPosts    || 0, color: "bg-purple-100 text-purple-700", icon: <TrendingUp size={18}/> },
+          { label: "New Users (7d)", value: S.newUsers7d   || 0, color: "bg-green-100 text-green-700",   icon: <Eye size={18}/> },
+          { label: "Total Reports",  value: S.totalReports  || 0, color: "bg-red-100 text-red-700",       icon: <AlertTriangle size={18}/> },
+        ].map(stat => (
           <div key={stat.label} className={`${stat.color} rounded-2xl p-4 flex items-center gap-3`}>
-            <div className="opacity-70">{stat.icon}</div>
+            <div className="opacity-60">{stat.icon}</div>
             <div>
               <p className="text-2xl font-black leading-none">{stat.value}</p>
               <p className="text-xs font-medium opacity-70 mt-0.5">{stat.label}</p>
@@ -210,18 +312,19 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — NEW: analytics tab added */}
       <div className="px-6 mb-4">
-        <div className="flex gap-1 bg-white rounded-2xl p-1 shadow-sm border border-gray-100 w-fit">
+        <div className="flex gap-1 bg-white rounded-2xl p-1 shadow-sm border border-gray-100 w-fit flex-wrap">
           {[
-            { key: "aadhaar",  label: "Aadhaar Reviews",  count: pendingUsers.length },
-            { key: "reported", label: "Reported Content",  count: reportedUsers.length + reportedPosts.length },
+            { key: "aadhaar",   label: "Aadhaar Reviews",  count: pendingUsers.length },
+            { key: "reported",  label: "Reported Content",  count: reportedUsers.length + reportedPosts.length },
+            { key: "analytics", label: "Analytics",          count: 0 },  // NEW
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===t.key ? "bg-purple-600 text-white" : "text-gray-500 hover:bg-gray-100"}`}>
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition ${tab === t.key ? "bg-purple-600 text-white" : "text-gray-500 hover:bg-gray-100"}`}>
               {t.label}
               {t.count > 0 && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab===t.key ? "bg-white/30 text-white" : "bg-red-100 text-red-600"}`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === t.key ? "bg-white/30 text-white" : "bg-red-100 text-red-600"}`}>
                   {t.count}
                 </span>
               )}
@@ -232,7 +335,7 @@ export default function AdminDashboard() {
 
       <div className="px-6 pb-8">
 
-        {/* ── AADHAAR REVIEWS TAB ── */}
+        {/* ── AADHAAR REVIEWS TAB (unchanged) ── */}
         {tab === "aadhaar" && (
           <div className="space-y-3">
             <h2 className="font-bold text-gray-700 text-sm uppercase tracking-widest mb-3">Pending Aadhaar Verifications</h2>
@@ -257,15 +360,12 @@ export default function AdminDashboard() {
                       <span>📍 {u.area?.replace(/-/g," ")}</span>
                       <span>📅 {new Date(u.createdAt).toLocaleDateString()}</span>
                     </div>
-                    {/* Last 4 digits */}
                     <div className="mt-2 inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
                       <ShieldCheck size={13} className="text-purple-400" />
                       <span className="text-xs font-mono text-gray-600">Aadhaar ends in: <strong>{u.aadhaarLast4 || "N/A"}</strong></span>
                     </div>
                   </div>
                 </div>
-
-                {/* Rejection reason input */}
                 <div className="mt-3 flex gap-2">
                   <input
                     className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-300 transition"
@@ -274,18 +374,13 @@ export default function AdminDashboard() {
                     onChange={(e) => setRejectReason({ ...rejectReason, [u._id]: e.target.value })}
                   />
                 </div>
-
                 <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => approveAadhaar(u._id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-bold transition shadow-sm"
-                  >
+                  <button onClick={() => approveAadhaar(u._id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-bold transition shadow-sm">
                     <CheckCircle size={15} /> Approve
                   </button>
-                  <button
-                    onClick={() => rejectAadhaar(u._id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold transition shadow-sm"
-                  >
+                  <button onClick={() => rejectAadhaar(u._id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold transition shadow-sm">
                     <XCircle size={15} /> Reject
                   </button>
                 </div>
@@ -294,13 +389,43 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── REPORTED CONTENT TAB ── */}
+        {/* ── REPORTED CONTENT TAB (search + area filter added) ── */}
         {tab === "reported" && (
           <div className="space-y-6">
 
+            {/* NEW: Search + area filter bar */}
+            <div className="flex gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+                <input
+                  className="w-full pl-8 pr-3 py-2 rounded-xl border border-gray-200 bg-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                  placeholder="Search name, email, title..."
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                />
+              </div>
+              <div className="relative">
+                <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+                <select
+                  className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-300 transition appearance-none"
+                  value={areaFilter}
+                  onChange={e => setAreaFilter(e.target.value)}
+                >
+                  <option value="">All Areas</option>
+                  {areas.map(a => (
+                    <option key={a._id} value={a.name}>
+                      {a.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* Reported Users */}
             <div>
-              <h2 className="font-bold text-gray-700 text-sm uppercase tracking-widest mb-3">Reported Users</h2>
+              <h2 className="font-bold text-gray-700 text-sm uppercase tracking-widest mb-3">
+                Reported Users {searchQ || areaFilter ? `(filtered)` : ""}
+              </h2>
               {reportedUsers.length === 0 && (
                 <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center text-gray-400 text-sm">
                   No reported users
@@ -324,16 +449,12 @@ export default function AdminDashboard() {
                   </div>
                   {!u.banned && (
                     <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => warnUser(u._id)}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition"
-                      >
+                      <button onClick={() => warnUser(u._id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition">
                         <AlertTriangle size={14} /> Warn
                       </button>
-                      <button
-                        onClick={() => banUser(u._id)}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold transition"
-                      >
+                      <button onClick={() => banUser(u._id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold transition">
                         <Ban size={14} /> Ban
                       </button>
                     </div>
@@ -344,7 +465,9 @@ export default function AdminDashboard() {
 
             {/* Reported Posts */}
             <div>
-              <h2 className="font-bold text-gray-700 text-sm uppercase tracking-widest mb-3">Reported Posts</h2>
+              <h2 className="font-bold text-gray-700 text-sm uppercase tracking-widest mb-3">
+                Reported Posts {searchQ || areaFilter ? `(filtered)` : ""}
+              </h2>
               {reportedPosts.length === 0 && (
                 <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center text-gray-400 text-sm">
                   No reported posts
@@ -354,7 +477,7 @@ export default function AdminDashboard() {
                 <div key={post._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                           post.type==="emergency" ? "bg-red-100 text-red-600" :
                           post.type==="event"     ? "bg-amber-100 text-amber-700" :
@@ -362,6 +485,8 @@ export default function AdminDashboard() {
                           "bg-blue-100 text-blue-600"
                         }`}>{post.type}</span>
                         <span className="text-xs text-red-500 font-semibold">🚩 {post.reportCount || 1} report(s)</span>
+                        {/* NEW: show area */}
+                        {post.area && <span className="text-[10px] text-gray-400">📍 {post.area.replace(/-/g," ")}</span>}
                       </div>
                       <h3 className="font-bold text-gray-800 text-sm">{post.title}</h3>
                       <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{post.content}</p>
@@ -369,25 +494,18 @@ export default function AdminDashboard() {
                     </div>
                     {post.image && <img src={post.image} className="w-16 h-16 rounded-xl object-cover shrink-0" alt="" />}
                   </div>
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={() => dismissReport(post._id)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-semibold transition"
-                    >
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    <button onClick={() => dismissReport(post._id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-semibold transition">
                       <CheckCircle size={14} /> Dismiss
                     </button>
-                    <button
-                      onClick={() => deletePost(post._id)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold transition"
-                    >
+                    <button onClick={() => deletePost(post._id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold transition">
                       <XCircle size={14} /> Delete Post
                     </button>
-                    {/* Warn the post author */}
                     {post.userId && (
-                      <button
-                        onClick={() => warnUser(post.userId)}
-                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition"
-                      >
+                      <button onClick={() => warnUser(post.userId)}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition">
                         <AlertTriangle size={14} /> Warn Author
                       </button>
                     )}
@@ -397,6 +515,55 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* ── NEW: ANALYTICS TAB ── */}
+        {tab === "analytics" && (
+          <div className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+
+              {/* Posts per day */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart2 size={15} className="text-purple-500"/>
+                  <span className="font-bold text-gray-800 text-sm">Posts — last 7 days</span>
+                </div>
+                <BarChart data={analytics?.postsPerDay} color="#8b5cf6"/>
+              </div>
+
+              {/* Reports per day */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertOctagon size={15} className="text-red-500"/>
+                  <span className="font-bold text-gray-800 text-sm">Reports — last 7 days</span>
+                </div>
+                <BarChart data={analytics?.reportsPerDay} color="#ef4444"/>
+              </div>
+
+              {/* Post type breakdown */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Eye size={15} className="text-blue-500"/>
+                  <span className="font-bold text-gray-800 text-sm">Post Type Breakdown</span>
+                </div>
+                <DonutChart data={analytics?.postTypes}/>
+              </div>
+
+              {/* Users per area */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users size={15} className="text-green-500"/>
+                  <span className="font-bold text-gray-800 text-sm">Users per Area (top 10)</span>
+                </div>
+                <BarChart
+                  data={(analytics?.usersPerArea || []).map(u => ({ _id: u._id, count: u.count }))}
+                  color="#10b981"
+                />
+              </div>
+
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

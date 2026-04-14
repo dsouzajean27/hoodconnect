@@ -38,6 +38,17 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// ── Push notification helpers (NEW) ──────────────────────────────────────────
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64  = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw     = window.atob(base64);
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+}
+function arrayBufferToBase64(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
 const BADGE_META = {
   verified_citizen:   { emoji: "🛡️", label: "Verified Citizen",    color: "bg-blue-100 text-blue-700 border-blue-200" },
   first_responder:    { emoji: "🚨", label: "First Responder",     color: "bg-red-100 text-red-700 border-red-200" },
@@ -116,9 +127,9 @@ export default function Dashboard() {
   const [showBookmarks, setShowBookmarks] = useState(false);
 
   // ── Poll state ────────────────────────────────────────────────────────────
-  const [isPoll, setIsPoll]               = useState(false);
-  const [pollOptions, setPollOptions]     = useState(["", ""]);  // min 2 options
-  const [pollEndsAt, setPollEndsAt]       = useState("");        // datetime-local string
+  const [isPoll, setIsPoll]           = useState(false);
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollEndsAt, setPollEndsAt]   = useState("");
 
   // ── Area Discovery state ──────────────────────────────────────────────────
   const [showAreaDiscovery, setShowAreaDiscovery] = useState(false);
@@ -157,6 +168,38 @@ export default function Dashboard() {
     { key: "casual",      label: "Casual",    icon: User },
     { key: "promotional", label: "Promo",     icon: Megaphone },
   ];
+
+  // ── NEW: Push notification subscription (runs once after login) ───────────
+  useEffect(() => {
+    if (!user?.id || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const setupPush = async () => {
+      try {
+        // Register the service worker
+        const reg  = await navigator.serviceWorker.register("/sw.js");
+        // Ask for permission (browser will only prompt once)
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") return;
+        // Fetch the VAPID public key from our server
+        const keyRes  = await axios.get(`${BASE_URL}/push/vapid-key`);
+        const vapidKey = keyRes.data.publicKey;
+        if (!vapidKey) return; // push not configured server-side — skip
+        // Create/fetch subscription
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+        // Save to server so server can push to this user's area
+        await axios.post(`${BASE_URL}/push/subscribe`, {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: arrayBufferToBase64(sub.getKey("p256dh")),
+            auth:   arrayBufferToBase64(sub.getKey("auth")),
+          },
+        }, { headers: authHeaders() });
+      } catch (err) { console.log("Push setup (non-fatal):", err.message); }
+    };
+    setupPush();
+  }, [user?.id]); // only re-run if the logged-in user changes
 
   // ── Data fetchers ─────────────────────────────────────────────────────────
   const fetchPosts = async () => {
@@ -370,14 +413,13 @@ export default function Dashboard() {
   const stopRecording = () => { mediaRecRef.current?.stop(); setIsRecording(false); };
   const useCapturedMedia = () => {
     if (!capturedBlob) return;
-    const ext = cameraMode === "video" ? "webm" : "jpg";
+    const ext  = cameraMode === "video" ? "webm" : "jpg";
     const file = new File([capturedBlob], `capture.${ext}`, { type: capturedBlob.type });
     if (cameraMode === "video") { setVideo(file); } else { setImage(file); setImagePreview(capturedPhoto); }
     setShowCamera(false); setShowModal(true);
   };
 
   // ── Post handlers ─────────────────────────────────────────────────────────
-  // FIX: removed the duplicate formData.append bug from last version
   const handlePost = async () => {
     try {
       const formData = new FormData();
@@ -397,7 +439,6 @@ export default function Dashboard() {
       if (captureLat)     formData.append("captureLat",     captureLat);
       if (captureLng)     formData.append("captureLng",     captureLng);
       if (captureAddress) formData.append("captureAddress", captureAddress);
-      // Poll fields
       formData.append("isPoll", String(isPoll));
       if (isPoll) {
         const validOpts = pollOptions.filter(o => o.trim());
@@ -409,7 +450,6 @@ export default function Dashboard() {
 
       await axios.post(`${BASE_URL}/posts`, formData, { headers: { ...authHeaders() } });
 
-      // Reset all post form state
       setTitle(""); setContent(""); setLocation(""); setImage(null); setVideo(null);
       setImagePreview(null); setAnonymous(false); setAlertUsers(false);
       setGeotagged(false); setCaptureLat(null); setCaptureLng(null); setCaptureAddress(null);
@@ -426,30 +466,20 @@ export default function Dashboard() {
   const handleReport   = async id => { if (!window.confirm("Report this post?")) return; try { await axios.post(`${BASE_URL}/posts/${id}/report`, { userId: user?.id }, { headers: authHeaders() }); alert("Reported."); } catch {} };
   const handleLogout   = () => { localStorage.removeItem("user"); localStorage.removeItem("token"); navigate("/"); };
 
-  // ── Poll vote ─────────────────────────────────────────────────────────────
   const handlePollVote = async (postId, optionId) => {
-    try {
-      await axios.put(`${BASE_URL}/posts/${postId}/poll/${optionId}`, { userId: user?.id }, { headers: authHeaders() });
-      fetchPosts();
-    } catch (err) { console.log("handlePollVote:", err); }
+    try { await axios.put(`${BASE_URL}/posts/${postId}/poll/${optionId}`, { userId: user?.id }, { headers: authHeaders() }); fetchPosts(); } catch (err) { console.log("handlePollVote:", err); }
   };
 
-  // Helper: total votes in a poll
   const totalPollVotes = (post) =>
     (post.pollOptions || []).reduce((sum, opt) => sum + (opt.votes?.length || 0), 0);
 
-  // Helper: has current user voted on this option
   const userVotedOption = (post) =>
     (post.pollOptions || []).find(opt => opt.votes?.some(id => id === user?.id || id?.toString() === user?.id))?._id;
 
-  // ── Comment handlers ──────────────────────────────────────────────────────
   const handleComment = async postId => {
     const text = commentText[postId];
     if (!text?.trim()) return;
-    try {
-      await axios.post(`${BASE_URL}/posts/${postId}/comment`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() });
-      setCommentText({ ...commentText, [postId]: "" }); fetchPosts();
-    } catch {}
+    try { await axios.post(`${BASE_URL}/posts/${postId}/comment`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() }); setCommentText({ ...commentText, [postId]: "" }); fetchPosts(); } catch {}
   };
 
   const handleCommentLike = async (postId, commentId) => {
@@ -459,24 +489,14 @@ export default function Dashboard() {
   const handleReply = async (postId, commentId) => {
     const text = replyText[commentId];
     if (!text?.trim()) return;
-    try {
-      await axios.post(`${BASE_URL}/posts/${postId}/comments/${commentId}/reply`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() });
-      setReplyText({ ...replyText, [commentId]: "" }); setReplyTarget(null); fetchPosts();
-    } catch {}
+    try { await axios.post(`${BASE_URL}/posts/${postId}/comments/${commentId}/reply`, { text, userName: user?.name || "Anonymous", userId: user?.id }, { headers: authHeaders() }); setReplyText({ ...replyText, [commentId]: "" }); setReplyTarget(null); fetchPosts(); } catch {}
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ── Poll option editor helpers ────────────────────────────────────────────
-  const updatePollOption = (i, val) => {
-    const copy = [...pollOptions]; copy[i] = val; setPollOptions(copy);
-  };
-  const addPollOption = () => {
-    if (pollOptions.length < 6) setPollOptions([...pollOptions, ""]);
-  };
-  const removePollOption = (i) => {
-    if (pollOptions.length > 2) setPollOptions(pollOptions.filter((_, idx) => idx !== i));
-  };
+  const updatePollOption = (i, val) => { const c = [...pollOptions]; c[i] = val; setPollOptions(c); };
+  const addPollOption    = () => { if (pollOptions.length < 6) setPollOptions([...pollOptions, ""]); };
+  const removePollOption = (i) => { if (pollOptions.length > 2) setPollOptions(pollOptions.filter((_, idx) => idx !== i)); };
 
   return (
     <div className="min-h-screen bg-[#f0f2f8] flex flex-col">
@@ -599,7 +619,7 @@ export default function Dashboard() {
         </aside>
 
         {/* CENTER FEED */}
-        <main className="flex-1 py-4 md:py-5 px-3 md:px-4 overflow-y-auto w-full" style={{ maxWidth:640, margin:"0 auto" }}>
+        <main className="flex-1 py-4 md:py-5 px-3 md:px-4 overflow-y-auto w-full" style={{ maxWidth: 640, margin: "0 auto" }}>
           <div className="flex gap-2 mb-4 md:mb-5">
             <button onClick={() => setShowModal(true)}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-sm shadow-md hover:shadow-lg hover:from-blue-700 hover:to-purple-700 transition">
@@ -617,7 +637,7 @@ export default function Dashboard() {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition shrink-0 ${active?"bg-purple-600 text-white":"bg-white border border-gray-200 text-gray-600"}`}>
                 <Icon size={13}/>{f.label}
               </button>
-            );})}
+            ); })}
           </div>
 
           <div className="flex items-center gap-2 mb-4">
@@ -699,7 +719,7 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-600 mt-1 leading-relaxed">{post.content}</p>
               </div>
 
-              {/* ── POLL DISPLAY ── */}
+              {/* POLL DISPLAY */}
               {post.isPoll && post.pollOptions?.length > 0 && (
                 <div className="px-4 pb-3">
                   <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
@@ -713,35 +733,19 @@ export default function Dashboard() {
                         <span className="ml-auto text-[10px] bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full font-semibold">Ended</span>
                       )}
                     </div>
-
                     {post.pollOptions.map(opt => {
                       const total     = totalPollVotes(post);
                       const pct       = total > 0 ? Math.round((opt.votes?.length || 0) / total * 100) : 0;
                       const myVoteId  = userVotedOption(post);
                       const isMyVote  = myVoteId?.toString() === opt._id?.toString();
                       const pollEnded = post.pollEndsAt && new Date() >= new Date(post.pollEndsAt);
-
                       return (
-                        <button
-                          key={opt._id}
-                          onClick={() => !pollEnded && handlePollVote(post._id, opt._id)}
-                          disabled={pollEnded}
-                          className={`w-full text-left rounded-xl overflow-hidden border transition ${
-                            isMyVote
-                              ? "border-indigo-400 bg-indigo-100"
-                              : "border-gray-200 bg-white hover:border-indigo-300"
-                          } ${pollEnded ? "cursor-default" : "cursor-pointer"}`}
-                        >
+                        <button key={opt._id} onClick={() => !pollEnded && handlePollVote(post._id, opt._id)} disabled={pollEnded}
+                          className={`w-full text-left rounded-xl overflow-hidden border transition ${isMyVote?"border-indigo-400 bg-indigo-100":"border-gray-200 bg-white hover:border-indigo-300"} ${pollEnded?"cursor-default":""}`}>
                           <div className="relative px-3 py-2">
-                            {/* Progress bar behind */}
-                            <div
-                              className={`absolute inset-y-0 left-0 rounded-xl transition-all duration-500 ${isMyVote?"bg-indigo-200":"bg-gray-100"}`}
-                              style={{ width: `${pct}%` }}
-                            />
+                            <div className={`absolute inset-y-0 left-0 rounded-xl transition-all duration-500 ${isMyVote?"bg-indigo-200":"bg-gray-100"}`} style={{ width: `${pct}%` }}/>
                             <div className="relative flex items-center justify-between">
-                              <span className={`text-xs font-medium ${isMyVote?"text-indigo-800":"text-gray-700"}`}>
-                                {isMyVote && <span className="mr-1">✓</span>}{opt.text}
-                              </span>
+                              <span className={`text-xs font-medium ${isMyVote?"text-indigo-800":"text-gray-700"}`}>{isMyVote && <span className="mr-1">✓</span>}{opt.text}</span>
                               <span className={`text-xs font-bold ${isMyVote?"text-indigo-700":"text-gray-500"}`}>{pct}%</span>
                             </div>
                           </div>
@@ -905,7 +909,7 @@ export default function Dashboard() {
               {user?.aadhaarStatus==="rejected" && <span className="mt-1 text-[10px] bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 rounded-full font-semibold">❌ ID Rejected</span>}
               {user?.badges?.length > 0 && (
                 <div className="flex flex-wrap gap-1 justify-center mt-2">
-                  {user.badges.map(b=>(
+                  {user.badges.map(b => (
                     <span key={b} title={BADGE_META[b]?.label} className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${BADGE_META[b]?.color}`}>
                       {BADGE_META[b]?.emoji} {BADGE_META[b]?.label}
                     </span>
@@ -916,7 +920,7 @@ export default function Dashboard() {
               <select className="mt-3 w-full px-2 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                 value={user?.area||""}
                 onChange={e => { const a=e.target.value; const u={...user,area:a}; localStorage.setItem("user",JSON.stringify(u)); setUser(u); if(socketRef.current)socketRef.current.emit("joinRoom",{area:a}); }}>
-                {areas.map(a=><option key={a._id} value={a.name}>{a.name.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</option>)}
+                {areas.map(a => <option key={a._id} value={a.name}>{a.name.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</option>)}
               </select>
               {/* Discover button in sidebar */}
               <button onClick={detectNearbyAreas}
@@ -924,7 +928,7 @@ export default function Dashboard() {
                 <Radar size={12}/> Discover Nearby Areas
               </button>
               <button onClick={() => user?.id && navigate(`/profile/${user.id}`)} className="mt-1 w-full flex items-center justify-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium transition py-1.5 rounded-lg hover:bg-purple-50">
-                View Profile<ChevronRight size={12}/>
+                View Profile <ChevronRight size={12}/>
               </button>
               <button onClick={() => navigate("/chat")} className="mt-1 w-full flex items-center justify-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition py-1.5 rounded-lg hover:bg-blue-50">
                 <MessageCircle size={12}/> Messages {dmUnread>0&&<span className="bg-purple-600 text-white text-[9px] px-1.5 py-0.5 rounded-full">{dmUnread}</span>}
@@ -940,8 +944,8 @@ export default function Dashboard() {
             </div>
             {leaderboard.length===0?<p className="text-xs text-gray-400 text-center py-3">No activity yet</p>:(
               <div className="space-y-1">
-                {leaderboard.map((entry,i)=>(
-                  <div key={entry.userId} onClick={()=>navigate(`/profile/${entry.userId}`)}
+                {leaderboard.map((entry,i) => (
+                  <div key={entry.userId} onClick={() => navigate(`/profile/${entry.userId}`)}
                     className="flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-purple-50 cursor-pointer transition">
                     <span className="text-sm w-5 text-center shrink-0">{i===0?"🥇":i===1?"🥈":i===2?"🥉":<span className="text-xs text-gray-400 font-bold">#{i+1}</span>}</span>
                     <span className="flex-1 text-xs font-medium text-gray-700 truncate">{entry.name}{entry.verified&&<span className="ml-1 text-blue-400 text-[10px]">✓</span>}</span>
@@ -968,27 +972,23 @@ export default function Dashboard() {
 
       {/* LIGHTBOX */}
       {lightbox && (
-        <div className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4" onClick={()=>setLightbox(null)}>
-          <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition" onClick={()=>setLightbox(null)}><X size={20}/></button>
-          <div onClick={e=>e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition" onClick={() => setLightbox(null)}><X size={20}/></button>
+          <div onClick={e => e.stopPropagation()}>
             {lightbox.type==="image"?<img src={lightbox.src} className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl" alt="full view"/>
               :<video src={lightbox.src} controls autoPlay className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl"/>}
           </div>
         </div>
       )}
 
-      {/* ── AREA DISCOVERY MODAL ── */}
+      {/* AREA DISCOVERY MODAL */}
       {showAreaDiscovery && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-600 to-teal-600">
-              <div className="flex items-center gap-2">
-                <Radar size={18} className="text-white"/>
-                <h2 className="font-bold text-white text-base">Discover Nearby Areas</h2>
-              </div>
+              <div className="flex items-center gap-2"><Radar size={18} className="text-white"/><h2 className="font-bold text-white text-base">Discover Nearby Areas</h2></div>
               <button onClick={() => setShowAreaDiscovery(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition"><X size={14}/></button>
             </div>
-
             <div className="p-4">
               {areaDetecting ? (
                 <div className="text-center py-8">
@@ -1006,47 +1006,28 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-400 mb-3 font-medium">Areas with activity near you — tap to switch:</p>
                   <div className="space-y-2 max-h-72 overflow-y-auto">
                     {nearbyAreas.map(a => (
-                      <button
-                        key={a.name}
-                        onClick={() => switchToArea(a.name)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition text-left ${
-                          user?.area === a.name
-                            ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                            : "bg-gray-50 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 text-gray-700"
-                        }`}
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                          <MapPin size={14} className="text-emerald-600"/>
-                        </div>
+                      <button key={a.name} onClick={() => switchToArea(a.name)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition text-left ${user?.area === a.name?"bg-emerald-50 border-emerald-300 text-emerald-800":"bg-gray-50 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 text-gray-700"}`}>
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0"><MapPin size={14} className="text-emerald-600"/></div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm truncate">{a.label}</p>
                           <p className="text-xs text-gray-400">{a.count} post{a.count !== 1?"s":""} · {a.distance} km away</p>
                         </div>
-                        {user?.area === a.name && (
-                          <span className="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">Current</span>
-                        )}
+                        {user?.area === a.name && <span className="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">Current</span>}
                       </button>
                     ))}
                   </div>
                 </>
               )}
-
               {/* Manual area input */}
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <p className="text-xs text-gray-400 mb-2 font-medium">Or enter area manually:</p>
                 <div className="flex gap-2">
-                  <input
-                    className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
-                    placeholder="e.g. Bandra, Juhu..."
-                    value={tempArea}
-                    onChange={e => setTempArea(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter" && tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}
-                  />
-                  <button
-                    onClick={() => { if (tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}
-                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition">
-                    Go
-                  </button>
+                  <input className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+                    placeholder="e.g. Bandra, Juhu..." value={tempArea} onChange={e => setTempArea(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}/>
+                  <button onClick={() => { if (tempArea.trim()) { switchToArea(tempArea.toLowerCase().replace(/\s/g,"-")); setTempArea(""); } }}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition">Go</button>
                 </div>
               </div>
             </div>
@@ -1060,8 +1041,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between px-4 py-3 bg-black/80">
             <button onClick={closeCameraModal} className="text-white p-2 rounded-xl hover:bg-white/10 transition"><X size={20}/></button>
             <div className="flex bg-white/10 rounded-xl p-0.5">
-              {["photo","video"].map(m=>(
-                <button key={m} onClick={()=>{setCameraMode(m);if(cameraStream)startCamera(cameraFacing);}}
+              {["photo","video"].map(m => (
+                <button key={m} onClick={() => { setCameraMode(m); if(cameraStream) startCamera(cameraFacing); }}
                   className={`px-3 py-1 rounded-lg text-sm font-medium transition ${cameraMode===m?"bg-white text-black":"text-white"}`}>
                   {m==="photo"?<><Image size={14} className="inline mr-1"/>Photo</>:<><Video size={14} className="inline mr-1"/>Video</>}
                 </button>
@@ -1082,7 +1063,7 @@ export default function Dashboard() {
           <div className="bg-black/80 px-6 py-5 flex items-center justify-center gap-8">
             {capturedPhoto?(
               <>
-                <button onClick={()=>{setCapturedPhoto(null);setCapturedBlob(null);startCamera(cameraFacing);}} className="px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition">Retake</button>
+                <button onClick={() => { setCapturedPhoto(null); setCapturedBlob(null); startCamera(cameraFacing); }} className="px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition">Retake</button>
                 <button onClick={useCapturedMedia} className="px-6 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-bold hover:bg-purple-700 transition shadow-lg">Use {cameraMode==="video"?"Video":"Photo"} →</button>
               </>
             ):(cameraMode==="photo"
@@ -1099,7 +1080,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-t-3xl md:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-purple-600">
               <h2 className="font-bold text-white text-base">Create Post</h2>
-              <button onClick={()=>setShowModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition"><X size={14}/></button>
+              <button onClick={() => setShowModal(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 text-white transition"><X size={14}/></button>
             </div>
             <div className="px-6 py-4 space-y-3 max-h-[75vh] md:max-h-[70vh] overflow-y-auto">
               <input className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white transition"
@@ -1113,7 +1094,7 @@ export default function Dashboard() {
               {geotagged&&captureAddress&&(
                 <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-xs text-green-700">
                   <Navigation size={12}/><span className="truncate">Geotagged: {captureAddress}</span>
-                  <button onClick={()=>{setGeotagged(false);setCaptureAddress(null);}} className="ml-auto"><X size={12}/></button>
+                  <button onClick={() => { setGeotagged(false); setCaptureAddress(null); }} className="ml-auto"><X size={12}/></button>
                 </div>
               )}
 
@@ -1133,35 +1114,25 @@ export default function Dashboard() {
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" className="rounded accent-purple-600" checked={alertUsers} onChange={e=>setAlertUsers(e.target.checked)}/> 🔔 Alert users</label>
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer"><input type="checkbox" className="rounded accent-purple-600" checked={anonymous} onChange={e=>setAnonymous(e.target.checked)}/> 👤 Anonymous</label>
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                  <input type="checkbox" className="rounded accent-indigo-600" checked={isPoll} onChange={e=>setIsPoll(e.target.checked)}/> 
+                  <input type="checkbox" className="rounded accent-indigo-600" checked={isPoll} onChange={e=>setIsPoll(e.target.checked)}/>
                   <BarChart2 size={14} className="text-indigo-500"/> Add Poll
                 </label>
               </div>
 
-              {/* ── POLL BUILDER ── */}
+              {/* POLL BUILDER */}
               {isPoll && (
                 <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
                   <p className="text-xs font-bold text-indigo-700 flex items-center gap-1"><BarChart2 size={12}/> Poll Options (2–6)</p>
                   {pollOptions.map((opt, i) => (
                     <div key={i} className="flex gap-2">
-                      <input
-                        className="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition"
-                        placeholder={`Option ${i + 1}`}
-                        value={opt}
-                        onChange={e => updatePollOption(i, e.target.value)}
-                      />
+                      <input className="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition"
+                        placeholder={`Option ${i + 1}`} value={opt} onChange={e => updatePollOption(i, e.target.value)}/>
                       {pollOptions.length > 2 && (
-                        <button onClick={() => removePollOption(i)} className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 flex items-center justify-center transition shrink-0">
-                          <X size={12}/>
-                        </button>
+                        <button onClick={() => removePollOption(i)} className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 flex items-center justify-center transition shrink-0"><X size={12}/></button>
                       )}
                     </div>
                   ))}
-                  {pollOptions.length < 6 && (
-                    <button onClick={addPollOption} className="w-full py-1.5 rounded-xl border border-dashed border-indigo-300 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition">
-                      + Add Option
-                    </button>
-                  )}
+                  {pollOptions.length < 6 && <button onClick={addPollOption} className="w-full py-1.5 rounded-xl border border-dashed border-indigo-300 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition">+ Add Option</button>}
                   <div>
                     <label className="text-xs text-indigo-600 font-medium">Poll ends at (optional)</label>
                     <input type="datetime-local" className="w-full mt-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300 transition"
@@ -1171,18 +1142,19 @@ export default function Dashboard() {
               )}
 
               <div className="grid grid-cols-3 gap-2">
-                <button onClick={()=>{setShowModal(false);openCameraModal();}} className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-purple-300 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 transition font-medium"><Camera size={18}/> Camera</button>
+                <button onClick={() => { setShowModal(false); openCameraModal(); }}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-purple-300 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 transition font-medium"><Camera size={18}/> Camera</button>
                 <label className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-gray-300 text-xs text-gray-500 cursor-pointer hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition">
-                  <Image size={18}/> Image<input type="file" accept="image/*" hidden onChange={e=>{const f=e.target.files[0];setImage(f);setImagePreview(URL.createObjectURL(f));setGeotagged(false);}}/>
+                  <Image size={18}/> Image<input type="file" accept="image/*" hidden onChange={e => { const f=e.target.files[0]; setImage(f); setImagePreview(URL.createObjectURL(f)); setGeotagged(false); }}/>
                 </label>
                 <label className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-dashed border-gray-300 text-xs text-gray-500 cursor-pointer hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition">
-                  <Video size={18}/> Video<input type="file" accept="video/*" hidden onChange={e=>{setVideo(e.target.files[0]);setGeotagged(false);}}/>
+                  <Video size={18}/> Video<input type="file" accept="video/*" hidden onChange={e => { setVideo(e.target.files[0]); setGeotagged(false); }}/>
                 </label>
               </div>
               {imagePreview&&<img src={imagePreview} className="w-full rounded-xl object-cover max-h-48" alt="preview"/>}
             </div>
             <div className="px-6 py-4 border-t border-gray-100">
-              <button onClick={()=>{handlePost();setShowModal(false);}} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm shadow hover:shadow-md hover:from-blue-700 hover:to-purple-700 transition">🚀 Post to Hood</button>
+              <button onClick={() => { handlePost(); setShowModal(false); }} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm shadow hover:shadow-md hover:from-blue-700 hover:to-purple-700 transition">🚀 Post to Hood</button>
             </div>
           </div>
         </div>
@@ -1202,7 +1174,7 @@ export default function Dashboard() {
                 <MapPin size={11}/> View on Google Maps
               </a>
             )}
-            <button onClick={()=>setEmergencyPost(null)} className="mt-4 block w-full bg-white text-red-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-red-50 transition">Dismiss</button>
+            <button onClick={() => setEmergencyPost(null)} className="mt-4 block w-full bg-white text-red-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-red-50 transition">Dismiss</button>
           </div>
         </div>
       )}
@@ -1218,16 +1190,16 @@ export default function Dashboard() {
               placeholder="e.g. Andheri, Borivali, Majiwada" value={tempArea} onChange={e=>setTempArea(e.target.value)}/>
             <div className="flex gap-2">
               <button className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-sm hover:from-blue-700 hover:to-purple-700 transition"
-                onClick={()=>{
-                  if(!tempArea)return;
-                  const f=tempArea.toLowerCase().replace(/\s/g,"-");
-                  axios.post(`${BASE_URL}/areas`,{name:f},{headers:authHeaders()});
-                  const u={...user,area:f}; localStorage.setItem("user",JSON.stringify(u)); setUser(u);
-                  if(socketRef.current)socketRef.current.emit("joinRoom",{area:f});
+                onClick={() => {
+                  if (!tempArea) return;
+                  const f = tempArea.toLowerCase().replace(/\s/g, "-");
+                  axios.post(`${BASE_URL}/areas`, { name: f }, { headers: authHeaders() });
+                  const u = { ...user, area: f }; localStorage.setItem("user", JSON.stringify(u)); setUser(u);
+                  if (socketRef.current) socketRef.current.emit("joinRoom", { area: f });
                   setShowLocationModal(false);
                 }}>Enter Manually</button>
               <button className="flex-1 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition"
-                onClick={()=>{ setShowLocationModal(false); detectNearbyAreas(); }}>
+                onClick={() => { setShowLocationModal(false); detectNearbyAreas(); }}>
                 <Radar size={13} className="inline mr-1"/>Detect
               </button>
             </div>

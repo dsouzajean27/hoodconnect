@@ -24,7 +24,7 @@ const commentSchema = new mongoose.Schema({
 // ── Poll option sub-schema ────────────────────────────────────────────────────
 const pollOptionSchema = new mongoose.Schema({
   text:  { type: String, required: true },
-  votes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // users who voted for this option
+  votes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 });
 
 // ── Post schema ───────────────────────────────────────────────────────────────
@@ -62,8 +62,14 @@ const postSchema = new mongoose.Schema(
 
     comments: [commentSchema],
 
+    // ── Legacy single-file fields — kept for backwards compat with old posts ──
     image:  String,
     video:  String,
+
+    // ── NEW: multiple files per post ──────────────────────────────────────────
+    images: [String],
+    videos: [String],
+
     alert:  { type: Boolean, default: false },
 
     // Geotagged media
@@ -81,12 +87,18 @@ const postSchema = new mongoose.Schema(
     reportCount: { type: Number, default: 0 },
     reportedBy:  [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-    // ── Poll ──────────────────────────────────────────────────────────────────
-    // isPoll: true means this post has a poll attached
+    // Poll
     isPoll:      { type: Boolean, default: false },
     pollOptions: [pollOptionSchema],
-    // Optional: poll closes at this date (null = no expiry)
     pollEndsAt:  { type: Date, default: null },
+
+    // ── NEW: Events upgrade ───────────────────────────────────────────────────
+    eventDate: { type: Date,   default: null },
+    eventTime: { type: String, default: null }, // e.g. "18:30"
+    rsvp: {
+      going:      [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      interested: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    },
   },
   { timestamps: true }
 );
